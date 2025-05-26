@@ -1,0 +1,138 @@
+name: Build, Tag, and Release Rust Binary
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-linux:
+    name: Build Linux (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo git
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build for Linux x86_64
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: simple_git_cicd-linux-x86_64
+          path: target/x86_64-unknown-linux-gnu/release/simple_git_cicd
+
+  build-macos:
+    name: Build macOS (aarch64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo git
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build for macOS aarch64
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: simple_git_cicd-macos-aarch64
+          path: target/aarch64-apple-darwin/release/simple_git_cicd
+
+  release:
+    name: Create Git Tag and GitHub Release
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get version from Cargo.toml
+        id: get_version
+        run: |
+          version=$(grep '^version =' Cargo.toml | head -1 | sed -E 's/version = "(.*)"/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Set up Git for tagging
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create Git Tag if it doesn't exist and push
+        run: |
+          TAG="v${{ steps.get_version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1
+          then
+            echo "Tag $TAG already exists, skipping tag creation"
+          else
+            echo "Creating tag $TAG"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Linux binary artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: simple_git_cicd-linux-x86_64
+          path: ./linux
+
+      - name: Download macOS binary artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: simple_git_cicd-macos-aarch64
+          path: ./macos
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux binary to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./linux/simple_git_cicd
+
+      - name: Upload macOS binary to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./macos/simple_git_cicd
