@@ -15,10 +15,20 @@ async fn main() {
         std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8888".to_string());
     let config_path =
         std::env::var("CICD_CONFIG").unwrap_or_else(|_| "cicd_config.toml".to_string());
-    let config_str = fs::read_to_string(&config_path)
-        .unwrap_or_else(|_| panic!("Failed to read config file: {}", config_path));
-    let config: CICDConfig =
-        toml::from_str(&config_str).unwrap_or_else(|e| panic!("Failed to parse config: {:?}", e));
+    let config_str = match fs::read_to_string(&config_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to read config file '{}': {}", config_path, e);
+            std::process::exit(1);
+        }
+    };
+    let config: CICDConfig = match toml::from_str(&config_str) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Failed to parse config '{}': {:?}", config_path, e);
+            std::process::exit(1);
+        }
+    };
 
     let state = Arc::new(AppState {
         app_lock_state: Mutex::new(()),
