@@ -46,7 +46,8 @@ Each project specifies:
 - `name`: The repository/project name (matches `repository.name` from GitHub payload)
 - `repo_path`: Absolute path to the project folder (where git & your script will run)
 - `branches`: List of branch names (e.g., `[ "main", "staging" ]`) which should trigger jobs
-- `run_script`: The script/command to run when triggered. Can be Bash, Python, Node.js, or anything, with args.
+- `run_script`: The default script/command to run for this project, if no branch-specific override is present. Can be Bash, Python, Node.js, or anything, with args.
+- `branch_scripts` (optional): A table mapping branch names to script commands. If a branch matches and a script is set here, that script is used instead of `run_script`.
 - `with_webhook_secret`: If true, validates the webhook with your secret.
 - `webhook_secret`: (Required if above is true) The secret for GitHub HMAC signature validation.
 
@@ -56,8 +57,14 @@ Each project specifies:
 [[project]]
 name = "my-app"
 repo_path = "/home/your_username/code/my-app"
-branches = ["main", "staging"]
-run_script = "./deploy.sh"
+branches = ["main", "staging", "dev"]
+run_script = "./deploy.sh"  # original & fallback script
+
+[project.branch_scripts]
+main = "./deploy-main.sh"
+staging = "./deploy-staging.sh"
+# (if you trigger for 'dev', it will use run_script as fallback)
+
 with_webhook_secret = true
 webhook_secret = "yoursecret"
 
@@ -67,10 +74,12 @@ repo_path = "/srv/www/static-site"
 branches = ["main"]
 run_script = "python3 build_and_reload.py"
 with_webhook_secret = false
+# No [project.branch_scripts], all branches use run_script
 ```
 
 - If `with_webhook_secret = true`, the corresponding `webhook_secret` must be present and match what GitHub's webhook uses.
 - `run_script` can be any executable available on your system: a shell script, Python script, Node.js app, etc.
+- `branch_scripts` (optional) lets you use a different script per branch. If no override is found for a given branch, `run_script` is used.
 
 ---
 
@@ -142,22 +151,26 @@ If you running on port 80/443, then it would be `http(s)://your-server.com/webho
   docker-compose up -d
   ```
 
-- **Custom Bash or Python Script:**
-  You can use
+- **Per-branch scripts with fallback:**
+  You can use the `branch_scripts` table to use a special script for `main`, and default to a simpler or different script for all others (using `run_script`).
+
+  ```toml
+  [project.branch_scripts]
+  main = "./deploy-production.sh"
+  develop = "./dev-deploy.sh"
+  # No "feature" override, so uses run_script
+  run_script = "./deploy-default.sh"
+  ```
+  Or simply just use `run_script` for everything if you don't need branch-specific behavior.
+
+- **Custom Bash, Python, Node, Java, Rust, etc.:**
   ```
   run_script = "bash special-deploy.sh"
-  ```
-  or
-  ```
   run_script = "python3 build.py"
-  ```
-  Any language, as long as it is executable!
-
-- **Node.js, Java, Rust, Anything:**
-  ```
   run_script = "node deploy.js"
   run_script = "cargo build --release"
   ```
+  Any language, as long as it is executable!
 
 - **Absolute or Relative Scripts:**
   If you provide an absolute path, that's what is run, with the git repo folder as working directory.

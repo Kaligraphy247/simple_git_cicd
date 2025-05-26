@@ -94,8 +94,9 @@ pub async fn handle_webhook(
             repo_name, branch_name
         );
 
+        let script = project.get_run_script_for_branch(branch_name);
         // Run the job (git checkout, pull, then user script)
-        match run_job_pipeline(branch_name, &project.repo_path, &project.run_script).await {
+        match run_job_pipeline(branch_name, &project.repo_path, script).await {
             Ok(_output) => {
                 info!("Job completed successfully.");
                 StatusCode::OK
