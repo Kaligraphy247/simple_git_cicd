@@ -123,7 +123,7 @@ If you running on port 80/443, then it would be `http(s)://your-server.com/webho
 - **Config-driven:** All behavior (what repos, what branches, what scripts) is defined in a TOML config.
 - **Project & Branch Matching:** For each webhook request, matches the repo and branch against configured projects.
 - **Webhook Security:** Per-project, opt-in HMAC secret validation.
-- **Script Runner:** Pulls the latest code (`git switch`, `git pull`), then runs your defined script—no matter what language/tool.
+- **Script Runner:** Pulls the latest code (`git fetch`, `git switch`, `git pull`), then runs your defined script—no matter what language/tool.
 - **Locking:** Ensures only one job runs at a time (mutex/lock), protecting low-resource servers from overload.
 
 ---

@@ -62,6 +62,30 @@ pub async fn run_job_pipeline(
     use tokio::process::Command;
     use tracing::{error, info};
 
+    // 0. git fetch to update remote refs
+    info!("Running (cwd = '{}'): git fetch", repo_path);
+    let fetch = Command::new("git")
+        .current_dir(repo_path)
+        .arg("fetch")
+        .output()
+        .await
+        .map_err(|e| {
+            error!("git fetch failed to start: {}", e);
+            format!("git fetch failed to start: {}", e)
+        })?;
+    if !fetch.status.success() {
+        let msg = format!(
+            "git fetch failed: {}",
+            String::from_utf8_lossy(&fetch.stderr)
+        );
+        error!("{}", msg);
+        return Err(msg);
+    }
+    info!(
+        "git fetch output:\n{}",
+        String::from_utf8_lossy(&fetch.stdout)
+    );
+
     // 1. git switch to branch
     info!("Running (cwd = '{}'): git switch {}", repo_path, branch);
     let checkout = Command::new("git")
