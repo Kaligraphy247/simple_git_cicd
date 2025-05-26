@@ -88,8 +88,32 @@ By default, it reads `cicd_config.toml` in the same folder. You can specify a di
 ```sh
 CICD_CONFIG=/path/to/your_config.toml ./target/release/simple_git_cicd
 ```
-The web server listens by default on port 8888 (`0.0.0.0:8888`).
-You can set up your GitHub webhook to POST to: `http(s)://your-server:8888/webhook` or `http(s)://your-server.com/webhook` if you're running on port 80/443.
+
+#### Bind Address and Port
+
+You can also control the bind address and port of the server (where it listens for webhooks) using the `BIND_ADDRESS` environment variable. By default, it listens on `127.0.0.1:8888`.
+
+**Examples:**
+- Listen on all interfaces, port 8888 (default):
+  ```
+  BIND_ADDRESS=0.0.0.0:8888
+  ```
+- Listen only on localhost, port 9001:
+  ```
+  BIND_ADDRESS=127.0.0.1:9001
+  ```
+- Listen on all interfaces, port 80:
+  ```
+  BIND_ADDRESS=0.0.0.0:80
+  ```
+
+**Running with a custom bind address:**
+```sh
+BIND_ADDRESS=127.0.0.1:9001 ./target/release/simple_git_cicd
+```
+
+You can set up your GitHub webhook to POST to the matching address, for example: `http://your-server:8888/webhook` or your chosen port.
+If you running on port 80/443, then it would be `http(s)://your-server.com/webhook`.
 
 ---
 
@@ -173,6 +197,8 @@ You can set up your GitHub webhook to POST to: `http(s)://your-server:8888/webho
 Built for simplicity and self-hosters!
 
 MIT License
+
+> Parts of this code and 98% of the documentation were written with LLMs
 ---
 
 

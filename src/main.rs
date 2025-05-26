@@ -11,7 +11,8 @@ use tracing::{self, info};
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    // Load and parse TOML config
+    let bind_address =
+        std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8888".to_string());
     let config_path =
         std::env::var("CICD_CONFIG").unwrap_or_else(|_| "cicd_config.toml".to_string());
     let config_str = fs::read_to_string(&config_path)
@@ -30,8 +31,8 @@ async fn main() {
         .route("/webhook", routing::post(handle_webhook))
         .with_state(state);
 
-    info!("Listening on port 0.0.0.0:8888");
+    info!("Listening on {}", bind_address);
     info!("Using config at {:?}", config_path);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8888").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(bind_address).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
