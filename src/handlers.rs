@@ -5,7 +5,9 @@ use axum::{
     response::IntoResponse,
 };
 use simple_git_cicd::SharedState;
-use simple_git_cicd::utils::{find_matching_project, run_job_pipeline, verify_github_signature};
+use simple_git_cicd::utils::{
+    find_matching_project_owned, run_job_pipeline, verify_github_signature,
+};
 use tracing::{self, debug, error, info, warn};
 
 pub async fn root() -> &'static str {
@@ -45,12 +47,12 @@ pub async fn handle_webhook(
         error!("No ref or repository.name field in push event payload");
         return StatusCode::BAD_REQUEST;
     }
-    let branch_ref = branch_ref.unwrap();
+    let branch_ref = branch_ref.unwrap(); // full reference to the branch_ref
     let branch_name = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
     let repo_name = repo_name.unwrap();
 
     // Find matching project config based on repo name and branch
-    let maybe_project = find_matching_project(&state.config, repo_name, branch_name);
+    let maybe_project = find_matching_project_owned(&state.config, repo_name, branch_name);
 
     if let Some(project) = maybe_project {
         // Per-project webhook signature validation if required
@@ -85,27 +87,42 @@ pub async fn handle_webhook(
             }
         }
 
-        // Acquire the job lock. Only one job will run at a time.
-        // Good for servers with low resources, don't bait
-        // the OOM killer
-        let _guard = state.app_lock_state.lock().await;
-        info!(
-            "Push event for project '{}' branch '{}'. Starting job pipeline.",
-            repo_name, branch_name
-        );
+        // Clone/Extract necessary data to move into background task
+        let repo_name = repo_name.to_owned();
+        let branch_name = branch_name.to_owned();
+        let repo_path = project.repo_path.clone();
 
-        let script = project.get_run_script_for_branch(branch_name);
-        // Run the job (git checkout, pull, then user script)
-        match run_job_pipeline(branch_name, &project.repo_path, script).await {
-            Ok(_output) => {
-                info!("Job completed successfully.");
-                StatusCode::OK
+        // get app lock
+        let shared_state = state.clone();
+        // let app_lock_state = state.app_lock_state.
+
+        // Spawn a background async task to process job, which might be long running
+        // I see you Nextjs..., but seriously tasks like rebuilidng a docker image etc
+        tokio::spawn(async move {
+            // Acquire the job lock. Only one job will run at a time.
+            // Good for servers with low resources, don't bait
+            // the OOM killer
+            let _guard = shared_state.app_lock_state.lock().await;
+            info!(
+                "Push event for project '{}' branch '{}'. Starting job pipeline.",
+                repo_name, branch_name
+            );
+
+            let script = project.get_run_script_for_branch(&branch_name);
+
+            // Run the job (git checkout, pull, then user script)
+            match run_job_pipeline(&branch_name, &repo_path, script).await {
+                Ok(_output) => {
+                    info!("Job completed successfully.");
+                }
+                Err(e) => {
+                    error!("Job failed: {}", e);
+                }
             }
-            Err(e) => {
-                error!("Job failed: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
+        });
+
+        // Return immediately so Github webhook request responds within 10 seconds
+        StatusCode::OK
     } else {
         warn!(
             "No matching project for repo '{}' and branch '{}', skipping.",

@@ -52,6 +52,18 @@ pub fn find_matching_project<'a>(
         .find(|proj| proj.name == repo_name && proj.branches.iter().any(|b| b == branch))
 }
 
+pub fn find_matching_project_owned(
+    config: &CICDConfig,
+    repo_name: &str,
+    branch: &str,
+) -> Option<ProjectConfig> {
+    config
+        .project
+        .iter()
+        .find(|proj| proj.name == repo_name && proj.branches.iter().any(|b| b == branch))
+        .cloned()
+}
+
 /// Helper to run the pipeline: git checkout, git pull, then the user script within the right directory.
 /// Returns combined stdout/stderr output or error.
 pub async fn run_job_pipeline(
