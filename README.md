@@ -197,7 +197,7 @@ If you running on port 80/443, then it would be `http(s)://your-server.com/webho
    ```
 
 
-> Alternatively, build with docker if your server uses an older version of glibc
+> Alternatively, build with docker if you need an older version of glibc
 
 To compile using Docker, use the Dockerfile in the repo.
 ```bash
