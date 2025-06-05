@@ -196,6 +196,19 @@ If you running on port 80/443, then it would be `http(s)://your-server.com/webho
    ./target/release/simple_git_cicd
    ```
 
+
+> Alternatively, build with docker if your server uses an older version of glibc
+
+To compile using Docker, use the Dockerfile in the repo.
+```bash
+# assuming you already cloned the repo
+docker build -t rust-build-buster .
+```
+
+You may want to compile inside the container, instead of at image build
+```bash
+docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp rust-build-buster cargo build --release
+```
 ---
 
 ## Troubleshooting
