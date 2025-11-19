@@ -2,3 +2,10 @@
 
 # ENVs
 .env
+
+# Logs
+logs/
+*.log
+
+# MacOS BS
+*.DS_Store

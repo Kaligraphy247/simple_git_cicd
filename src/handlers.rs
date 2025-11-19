@@ -1,5 +1,6 @@
 use axum::{
     body::Bytes,
+    extract::Query,
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
@@ -8,6 +9,7 @@ use simple_git_cicd::SharedState;
 use simple_git_cicd::utils::{
     find_matching_project_owned, run_job_pipeline, verify_github_signature,
 };
+use std::collections::HashMap;
 use tracing::{self, debug, error, info, warn};
 
 pub async fn root() -> &'static str {
@@ -17,9 +19,15 @@ pub async fn root() -> &'static str {
 /// Handles the GitHub webhook POST request.
 pub async fn handle_webhook(
     AxumState(state): AxumState<SharedState>,
+    Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    if cfg!(debug_assertions) && params.contains_key("dev") {
+        debug!("Debug mode");
+        debug!("Query Params: {:?}", params);
+        return StatusCode::NO_CONTENT;
+    }
     // Only handle "push" events.
     let event_opt = headers.get("X-GitHub-Event").and_then(|v| v.to_str().ok());
     if event_opt != Some("push") {
@@ -92,17 +100,15 @@ pub async fn handle_webhook(
         let branch_name = branch_name.to_owned();
         let repo_path = project.repo_path.clone();
 
-        // get app lock
+        // Get shared state for background task
         let shared_state = state.clone();
-        // let app_lock_state = state.app_lock_state.
 
         // Spawn a background async task to process job, which might be long running
-        // I see you Nextjs..., but seriously tasks like rebuilidng a docker image etc
+        // I see you Nextjs..., but seriously tasks like rebuilding a docker image etc
         tokio::spawn(async move {
             // Acquire the job lock. Only one job will run at a time.
-            // Good for servers with low resources, don't bait
-            // the OOM killer
-            let _guard = shared_state.app_lock_state.lock().await;
+            // Good for servers with low resources, don't bait the OOM killer
+            let _guard = shared_state.job_execution_lock.lock().await;
             info!(
                 "Push event for project '{}' branch '{}'. Starting job pipeline.",
                 repo_name, branch_name
@@ -113,7 +119,7 @@ pub async fn handle_webhook(
             // Run the job (git checkout, pull, then user script)
             match run_job_pipeline(&branch_name, &repo_path, script).await {
                 Ok(_output) => {
-                    info!("Job completed successfully.");
+                    info!("Job completed successfully."); // TODO: add proper logs here
                 }
                 Err(e) => {
                     error!("Job failed: {}", e);

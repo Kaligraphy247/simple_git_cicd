@@ -8,13 +8,17 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{self, info};
 
+const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:8888";
+const DEFAULT_CONFIG_PATH: &str = "cicd_config.toml";
+
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
+
     let bind_address =
-        std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8888".to_string());
+        std::env::var("BIND_ADDRESS").unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_string());
     let config_path =
-        std::env::var("CICD_CONFIG").unwrap_or_else(|_| "cicd_config.toml".to_string());
+        std::env::var("CICD_CONFIG").unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
     let config_str = match fs::read_to_string(&config_path) {
         Ok(s) => s,
         Err(e) => {
@@ -31,7 +35,7 @@ async fn main() {
     };
 
     let state = Arc::new(AppState {
-        app_lock_state: Mutex::new(()),
+        job_execution_lock: Mutex::new(()),
         config,
     });
 

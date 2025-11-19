@@ -15,8 +15,8 @@ pub fn verify_github_signature(secret: &str, payload: &[u8], signature_header: &
         return false;
     }
 
-    // signature from git
-    let git_signature = &signature_header[expected_prefix.len()..];
+    // Extract signature from header
+    let provided_signature = &signature_header[expected_prefix.len()..];
 
     // Compute HMAC SHA256
     let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
@@ -24,13 +24,13 @@ pub fn verify_github_signature(secret: &str, payload: &[u8], signature_header: &
         Err(_) => return false,
     };
     mac.update(payload);
-    let my_sig = mac.finalize().into_bytes();
+    let computed_signature = mac.finalize().into_bytes();
 
     // GitHub provides the signature as hex
-    match hex_decode(git_signature) {
-        Ok(git_signature_bytes) => {
+    match hex_decode(provided_signature) {
+        Ok(provided_signature_bytes) => {
             // Constant-time comparison
-            my_sig.as_slice() == git_signature_bytes.as_slice()
+            computed_signature.as_slice() == provided_signature_bytes.as_slice()
         }
         Err(_) => {
             error!("Signature verification failed");
@@ -146,12 +146,12 @@ pub async fn run_job_pipeline(
 
     // 3. Run the user script (split by whitespace for command + args)
     let mut parts = run_script.split_whitespace();
-    // Extract the script to run from the 'run_script' string.
+    // Extract the command to run from the 'run_script' string.
     // 'parts' is an iterator over the whitespace-separated words in 'run_script'.
     // The first element is expected to be the command (e.g., "cargo" in "cargo build").
     // Return an error if 'run_script' is empty, logging for diagnostics.
-    let script = parts.next().ok_or_else(|| {
-        let msg = "RUN_SCRIPT is empty".to_string();
+    let command = parts.next().ok_or_else(|| {
+        let msg = "run_script is empty".to_string();
         error!("{}", msg);
         msg
     })?;
@@ -162,7 +162,7 @@ pub async fn run_job_pipeline(
     write!(
         &mut cmd_str,
         "{}{}",
-        script,
+        command,
         if !args.is_empty() { " " } else { "" }
     )
     .ok();
@@ -176,14 +176,14 @@ pub async fn run_job_pipeline(
         .ok();
     }
 
-    // Log the REAL user script command
-    let mut script_cmd = String::from(script);
+    // Log the full command being executed
+    let mut full_command = String::from(command);
     for arg in &args {
-        script_cmd.push(' ');
-        script_cmd.push_str(arg);
+        full_command.push(' ');
+        full_command.push_str(arg);
     }
-    info!("Running (cwd = '{}'): {}", repo_path, script_cmd);
-    let script_output = Command::new(script)
+    info!("Running (cwd = '{}'): {}", repo_path, full_command);
+    let script_output = Command::new(command)
         .current_dir(repo_path)
         .args(&args)
         .output()

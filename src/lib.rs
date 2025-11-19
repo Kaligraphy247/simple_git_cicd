@@ -1,3 +1,4 @@
+pub mod logging;
 pub mod utils;
 
 use serde::Deserialize;
@@ -49,7 +50,7 @@ impl ProjectConfig {
 }
 
 pub struct AppState {
-    pub app_lock_state: Mutex<()>,
+    pub job_execution_lock: Mutex<()>,
     pub config: CICDConfig,
 }
 
