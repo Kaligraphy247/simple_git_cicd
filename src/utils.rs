@@ -1,3 +1,4 @@
+use crate::error::{CicdError, Result};
 use crate::{CICDConfig, ProjectConfig};
 use tracing::{self, error, info};
 
@@ -66,11 +67,7 @@ pub fn find_matching_project_owned(
 
 /// Helper to run the pipeline: git checkout, git pull, then the user script within the right directory.
 /// Returns combined stdout/stderr output or error.
-pub async fn run_job_pipeline(
-    branch: &str,
-    repo_path: &str,
-    run_script: &str,
-) -> Result<String, String> {
+pub async fn run_job_pipeline(branch: &str, repo_path: &str, run_script: &str) -> Result<String> {
     use tokio::process::Command;
     use tracing::{error, info};
 
@@ -83,15 +80,24 @@ pub async fn run_job_pipeline(
         .await
         .map_err(|e| {
             error!("git fetch failed to start: {}", e);
-            format!("git fetch failed to start: {}", e)
+            CicdError::GitOperationFailed {
+                operation: "git fetch".to_string(),
+                message: format!(
+                    "Failed to start git process: {}. Ensure git is installed and accessible.",
+                    e
+                ),
+            }
         })?;
     if !fetch.status.success() {
-        let msg = format!(
-            "git fetch failed: {}",
-            String::from_utf8_lossy(&fetch.stderr)
-        );
-        error!("{}", msg);
-        return Err(msg);
+        let stderr = String::from_utf8_lossy(&fetch.stderr);
+        error!("git fetch failed: {}", stderr);
+        return Err(CicdError::GitOperationFailed {
+            operation: "git fetch".to_string(),
+            message: format!(
+                "{}. Check network connectivity and repository access.",
+                stderr.trim()
+            ),
+        });
     }
     info!(
         "git fetch output:\n{}",
@@ -108,15 +114,22 @@ pub async fn run_job_pipeline(
         .await
         .map_err(|e| {
             error!("git switch failed to start: {}", e);
-            format!("git switch failed to start: {}", e)
+            CicdError::GitOperationFailed {
+                operation: "git switch".to_string(),
+                message: format!("Failed to start git process: {}", e),
+            }
         })?;
     if !checkout.status.success() {
-        let msg = format!(
-            "git switch failed: {}",
-            String::from_utf8_lossy(&checkout.stderr)
-        );
-        error!("{}", msg);
-        return Err(msg);
+        let stderr = String::from_utf8_lossy(&checkout.stderr);
+        error!("git switch failed: {}", stderr);
+        return Err(CicdError::GitOperationFailed {
+            operation: format!("git switch {}", branch),
+            message: format!(
+                "{}. Ensure branch '{}' exists remotely.",
+                stderr.trim(),
+                branch
+            ),
+        });
     }
     info!(
         "git switch output:\n{}",
@@ -132,12 +145,21 @@ pub async fn run_job_pipeline(
         .await
         .map_err(|e| {
             error!("git pull failed to start: {}", e);
-            format!("git pull failed to start: {}", e)
+            CicdError::GitOperationFailed {
+                operation: "git pull".to_string(),
+                message: format!("Failed to start git process: {}", e),
+            }
         })?;
     if !pull.status.success() {
-        let msg = format!("git pull failed: {}", String::from_utf8_lossy(&pull.stderr));
-        error!("{}", msg);
-        return Err(msg);
+        let stderr = String::from_utf8_lossy(&pull.stderr);
+        error!("git pull failed: {}", stderr);
+        return Err(CicdError::GitOperationFailed {
+            operation: "git pull".to_string(),
+            message: format!(
+                "{}. Ensure there are no local changes or merge conflicts.",
+                stderr.trim()
+            ),
+        });
     }
     info!(
         "git pull output:\n{}",
@@ -151,9 +173,8 @@ pub async fn run_job_pipeline(
     // The first element is expected to be the command (e.g., "cargo" in "cargo build").
     // Return an error if 'run_script' is empty, logging for diagnostics.
     let command = parts.next().ok_or_else(|| {
-        let msg = "run_script is empty".to_string();
-        error!("{}", msg);
-        msg
+        error!("run_script is empty");
+        CicdError::ScriptExecutionFailed("run_script configuration is empty".to_string())
     })?;
     let args: Vec<&str> = parts.collect();
 
@@ -190,7 +211,10 @@ pub async fn run_job_pipeline(
         .await
         .map_err(|e| {
             error!("run_script failed to start: {}", e);
-            format!("run_script failed to start: {}", e)
+            CicdError::ScriptExecutionFailed(format!(
+                "Failed to start script '{}': {}. Ensure the command exists and is executable.",
+                full_command, e
+            ))
         })?;
 
     if script_output.status.success() {
@@ -200,11 +224,18 @@ pub async fn run_job_pipeline(
         );
         Ok(String::from_utf8_lossy(&script_output.stdout).to_string())
     } else {
-        let msg = format!(
-            "run_script failed:\n{}",
-            String::from_utf8_lossy(&script_output.stderr)
-        );
-        error!("{}", msg);
-        Err(msg)
+        let stderr = String::from_utf8_lossy(&script_output.stderr);
+        let stdout = String::from_utf8_lossy(&script_output.stdout);
+        let exit_code = script_output.status.code().unwrap_or(-1);
+
+        error!("run_script failed with exit code {}: {}", exit_code, stderr);
+
+        Err(CicdError::ScriptExecutionFailed(format!(
+            "Script '{}' failed with exit code {}.\nStderr: {}\nStdout: {}",
+            full_command,
+            exit_code,
+            stderr.trim(),
+            stdout.trim()
+        )))
     }
 }
