@@ -11,7 +11,8 @@ use simple_git_cicd::job::Job;
 use simple_git_cicd::utils::{
     find_matching_project_owned, run_job_pipeline, verify_github_signature,
 };
-use simple_git_cicd::{SharedState, reload_config};
+use simple_git_cicd::webhook::WebhookData;
+use simple_git_cicd::{reload_config, SharedState};
 use std::collections::HashMap;
 use tracing::{self, debug, error, info, warn};
 
@@ -211,10 +212,51 @@ pub async fn handle_webhook(
             job_id, repo_name, branch_name
         );
 
-        // Clone/Extract necessary data to move into background task
-        let repo_name = repo_name.to_owned();
-        let branch_name = branch_name.to_owned();
-        let repo_path = project.repo_path.clone();
+        // Extract webhook data from payload
+        let webhook_data = WebhookData {
+            project_name: repo_name.to_string(),
+            branch: branch_name.to_string(),
+            repo_path: project.repo_path.clone(),
+            commit_sha: payload
+                .get("after")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            commit_message: payload
+                .get("head_commit")
+                .and_then(|c| c.get("message"))
+                .and_then(|v| v.as_str())
+                .map(|s| {
+                    // Truncate commit messages to 500 chars (they can be very long for squashed commits)
+                    const MAX_COMMIT_MSG_LEN: usize = 500;
+                    if s.len() > MAX_COMMIT_MSG_LEN {
+                        format!("{}... (truncated)", &s[..MAX_COMMIT_MSG_LEN])
+                    } else {
+                        s.to_string()
+                    }
+                }),
+            commit_author_name: payload
+                .get("head_commit")
+                .and_then(|c| c.get("author"))
+                .and_then(|a| a.get("name"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            commit_author_email: payload
+                .get("head_commit")
+                .and_then(|c| c.get("author"))
+                .and_then(|a| a.get("email"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            pusher_name: payload
+                .get("pusher")
+                .and_then(|p| p.get("name"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            repository_url: payload
+                .get("repository")
+                .and_then(|r| r.get("html_url"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        };
 
         // Get shared state for background task
         let shared_state = state.clone();
@@ -234,14 +276,11 @@ pub async fn handle_webhook(
 
             info!(
                 "Job {} - Push event for project '{}' branch '{}'. Starting job pipeline.",
-                job_id, repo_name, branch_name
+                job_id, webhook_data.project_name, webhook_data.branch
             );
 
-            let script = project.get_run_script_for_branch(&branch_name);
-            let reset_to_remote = project.should_reset_to_remote();
-
-            // Run the job (git fetch, reset/switch+pull, then user script)
-            match run_job_pipeline(&branch_name, &repo_path, script, reset_to_remote).await {
+            // Run the complete pipeline with hooks
+            match run_job_pipeline(&project, &webhook_data).await {
                 Ok(output) => {
                     info!("Job {} completed successfully.", job_id);
                     let mut store = shared_state.job_store.lock().await;

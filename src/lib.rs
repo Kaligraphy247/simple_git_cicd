@@ -54,12 +54,11 @@ impl ProjectConfig {
     /// If `branch_scripts` contains the branch, returns that script,
     /// otherwise returns the general `run_script`.
     pub fn get_run_script_for_branch(&self, branch: &str) -> &str {
-        if let Some(scripts) = &self.branch_scripts {
-            if let Some(custom_script) = scripts.get(branch) {
-                return custom_script;
-            }
-        }
-        &self.run_script
+        self.branch_scripts
+            .as_ref()
+            .and_then(|scripts| scripts.get(branch))
+            .map(|s| s.as_str())
+            .unwrap_or(&self.run_script)
     }
 
     /// Returns true if git should reset to remote (default: true for CI/CD)

@@ -1,3 +1,5 @@
+//! Webhook related structures
+
 /// Data extracted from webhook payload and configuration
 /// This data is passed to scripts as environment variables
 #[derive(Debug, Clone)]
