@@ -6,7 +6,8 @@ use chrono::{DateTime, Utc};
 use job::JobStore;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::Mutex;
 
@@ -56,9 +57,24 @@ impl ProjectConfig {
 pub struct AppState {
     pub job_execution_lock: Mutex<()>,
     pub job_store: Arc<Mutex<JobStore>>,
-    pub config: CICDConfig,
+    pub config: RwLock<CICDConfig>,
+    pub config_path: PathBuf,
     pub start_time: Instant,
     pub started_at: DateTime<Utc>,
 }
 
 pub type SharedState = Arc<AppState>;
+
+/// Reload configuration from disk
+pub async fn reload_config(config_path: &PathBuf) -> Result<CICDConfig, error::CicdError> {
+    use std::fs;
+
+    let config_str = fs::read_to_string(config_path)
+        .map_err(|e| error::CicdError::ConfigError(format!("Failed to read config file: {}", e)))?;
+
+    // Use toml crate to parse the config
+    let new_config: CICDConfig = toml::from_str(&config_str)
+        .map_err(|e| error::CicdError::ConfigError(format!("Failed to parse config: {}", e)))?;
+
+    Ok(new_config)
+}

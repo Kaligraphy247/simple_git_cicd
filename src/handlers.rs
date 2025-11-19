@@ -7,16 +7,39 @@ use axum::{
     response::IntoResponse,
 };
 use serde_json::json;
-use simple_git_cicd::SharedState;
 use simple_git_cicd::job::Job;
 use simple_git_cicd::utils::{
     find_matching_project_owned, run_job_pipeline, verify_github_signature,
 };
+use simple_git_cicd::{SharedState, reload_config};
 use std::collections::HashMap;
 use tracing::{self, debug, error, info, warn};
 
-pub async fn root() -> &'static str {
-    "Hello, World!"
+/// Root health check endpoint
+/// Supports ?format=json for detailed JSON response
+pub async fn root(
+    AxumState(state): AxumState<SharedState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let format = params.get("format").map(|s| s.as_str());
+
+    if format == Some("json") {
+        let store = state.job_store.lock().await;
+        let config = state.config.read().unwrap();
+
+        Json(json!({
+            "name": "simple_git_cicd",
+            "version": env!("CARGO_PKG_VERSION"),
+            "uptime_seconds": state.start_time.elapsed().as_secs(),
+            "current_job": store.get_current_job().map(|j| j.id.clone()),
+            "total_projects": config.project.len(),
+            "jobs_completed": store.get_completed_count(),
+            "status": "healthy"
+        }))
+        .into_response()
+    } else {
+        "simple_git_cicd - healthy".into_response()
+    }
 }
 
 /// Returns the current server status with job information
@@ -53,6 +76,8 @@ pub async fn status(
         store.get_recent_jobs(10)
     };
 
+    let config = state.config.read().unwrap();
+
     Json(json!({
         "server": {
             "name": "simple_git_cicd",
@@ -67,7 +92,7 @@ pub async fn status(
             "filtered_count": jobs.len(),
         },
         "config": {
-            "total_projects": state.config.project.len(),
+            "total_projects": config.project.len(),
         }
     }))
 }
@@ -132,7 +157,11 @@ pub async fn handle_webhook(
     let repo_name = repo_name.unwrap();
 
     // Find matching project config based on repo name and branch
-    let maybe_project = find_matching_project_owned(&state.config, repo_name, branch_name);
+    // Clone the project config and drop the lock immediately
+    let maybe_project = {
+        let config = state.config.read().unwrap();
+        find_matching_project_owned(&config, repo_name, branch_name)
+    };
 
     if let Some(project) = maybe_project {
         // Per-project webhook signature validation if required
@@ -233,5 +262,41 @@ pub async fn handle_webhook(
             repo_name, branch_name
         );
         StatusCode::NO_CONTENT
+    }
+}
+
+/// Reload configuration from disk
+/// Waits for current job to finish before applying the new config
+pub async fn reload_config_endpoint(AxumState(state): AxumState<SharedState>) -> impl IntoResponse {
+    // Wait for current job to finish before reloading
+    let _guard = state.job_execution_lock.lock().await;
+
+    match reload_config(&state.config_path).await {
+        Ok(new_config) => {
+            // Acquire write lock on shared config
+            let mut config = state.config.write().unwrap();
+            // Dereference guard (*config) to overwrite the inner data
+            *config = new_config;
+            info!(
+                "Configuration reloaded successfully from {:?}",
+                state.config_path
+            );
+            Json(json!({
+                "status": "success",
+                "message": "Configuration reloaded successfully"
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            error!("Failed to reload config: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": e.to_string()
+                })),
+            )
+                .into_response()
+        }
     }
 }

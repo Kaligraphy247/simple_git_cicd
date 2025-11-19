@@ -2,12 +2,13 @@ mod handlers;
 
 use axum::{Router, routing};
 use chrono::Utc;
-use handlers::{get_job, handle_webhook, root, status};
+use handlers::{get_job, handle_webhook, reload_config_endpoint, root, status};
 use simple_git_cicd::error::CicdError;
 use simple_git_cicd::job::JobStore;
 use simple_git_cicd::{AppState, CICDConfig};
 use std::fs;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{self, info};
@@ -53,7 +54,8 @@ async fn main() {
     let state = Arc::new(AppState {
         job_execution_lock: Mutex::new(()),
         job_store,
-        config,
+        config: RwLock::new(config),
+        config_path: PathBuf::from(config_path.clone()),
         start_time,
         started_at,
     });
@@ -64,6 +66,7 @@ async fn main() {
         .route("/webhook", routing::post(handle_webhook))
         .route("/status", routing::get(status))
         .route("/job/:id", routing::get(get_job))
+        .route("/reload", routing::post(reload_config_endpoint))
         .with_state(state);
 
     info!("Listening on {}", bind_address);
