@@ -238,9 +238,10 @@ pub async fn handle_webhook(
             );
 
             let script = project.get_run_script_for_branch(&branch_name);
+            let reset_to_remote = project.should_reset_to_remote();
 
-            // Run the job (git checkout, pull, then user script)
-            match run_job_pipeline(&branch_name, &repo_path, script).await {
+            // Run the job (git fetch, reset/switch+pull, then user script)
+            match run_job_pipeline(&branch_name, &repo_path, script, reset_to_remote).await {
                 Ok(output) => {
                     info!("Job {} completed successfully.", job_id);
                     let mut store = shared_state.job_store.lock().await;

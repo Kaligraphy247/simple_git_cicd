@@ -65,13 +65,55 @@ pub fn find_matching_project_owned(
         .cloned()
 }
 
-/// Helper to run the pipeline: git checkout, git pull, then the user script within the right directory.
+/// Reset the repository to match the remote branch exactly (hard reset)
+async fn git_reset_hard(repo_path: &str, target: &str) -> Result<()> {
+    use tokio::process::Command;
+
+    info!(
+        "Running (cwd = '{}'): git reset --hard {}",
+        repo_path, target
+    );
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["reset", "--hard", target])
+        .output()
+        .await
+        .map_err(|e| {
+            error!("git reset --hard failed to start: {}", e);
+            CicdError::GitOperationFailed {
+                operation: "git reset --hard".to_string(),
+                message: format!("Failed to start git process: {}", e),
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("git reset --hard failed: {}", stderr);
+        return Err(CicdError::GitOperationFailed {
+            operation: format!("git reset --hard {}", target),
+            message: format!("{}. Ensure the target '{}' exists.", stderr.trim(), target),
+        });
+    }
+
+    info!(
+        "git reset --hard output:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    Ok(())
+}
+
+/// Helper to run the pipeline: git fetch, then reset/switch+pull, then run script
 /// Returns combined stdout/stderr output or error.
-pub async fn run_job_pipeline(branch: &str, repo_path: &str, run_script: &str) -> Result<String> {
+pub async fn run_job_pipeline(
+    branch: &str,
+    repo_path: &str,
+    run_script: &str,
+    reset_to_remote: bool,
+) -> Result<String> {
     use tokio::process::Command;
     use tracing::{error, info};
 
-    // 0. git fetch to update remote refs
+    // 1. git fetch to update remote refs
     info!("Running (cwd = '{}'): git fetch", repo_path);
     let fetch = Command::new("git")
         .current_dir(repo_path)
@@ -104,67 +146,77 @@ pub async fn run_job_pipeline(branch: &str, repo_path: &str, run_script: &str) -
         String::from_utf8_lossy(&fetch.stdout)
     );
 
-    // 1. git switch to branch
-    info!("Running (cwd = '{}'): git switch {}", repo_path, branch);
-    let checkout = Command::new("git")
-        .current_dir(repo_path)
-        .arg("switch")
-        .arg(branch)
-        .output()
-        .await
-        .map_err(|e| {
-            error!("git switch failed to start: {}", e);
-            CicdError::GitOperationFailed {
-                operation: "git switch".to_string(),
-                message: format!("Failed to start git process: {}", e),
-            }
-        })?;
-    if !checkout.status.success() {
-        let stderr = String::from_utf8_lossy(&checkout.stderr);
-        error!("git switch failed: {}", stderr);
-        return Err(CicdError::GitOperationFailed {
-            operation: format!("git switch {}", branch),
-            message: format!(
-                "{}. Ensure branch '{}' exists remotely.",
-                stderr.trim(),
-                branch
-            ),
-        });
-    }
-    info!(
-        "git switch output:\n{}",
-        String::from_utf8_lossy(&checkout.stdout)
-    );
+    // 2. Reset to remote or switch+pull
+    if reset_to_remote {
+        // CI/CD mode: Hard reset to match remote exactly (handles modified files)
+        info!("Resetting to remote state (reset_to_remote=true)");
+        git_reset_hard(repo_path, &format!("origin/{}", branch)).await?;
+    } else {
+        // Debug mode: Normal switch + pull
+        info!("Using switch + pull mode (reset_to_remote=false)");
 
-    // 2. git pull
-    info!("Running (cwd = '{}'): git pull", repo_path);
-    let pull = Command::new("git")
-        .current_dir(repo_path)
-        .arg("pull")
-        .output()
-        .await
-        .map_err(|e| {
-            error!("git pull failed to start: {}", e);
-            CicdError::GitOperationFailed {
+        // 2a. git switch to branch
+        info!("Running (cwd = '{}'): git switch {}", repo_path, branch);
+        let checkout = Command::new("git")
+            .current_dir(repo_path)
+            .arg("switch")
+            .arg(branch)
+            .output()
+            .await
+            .map_err(|e| {
+                error!("git switch failed to start: {}", e);
+                CicdError::GitOperationFailed {
+                    operation: "git switch".to_string(),
+                    message: format!("Failed to start git process: {}", e),
+                }
+            })?;
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            error!("git switch failed: {}", stderr);
+            return Err(CicdError::GitOperationFailed {
+                operation: format!("git switch {}", branch),
+                message: format!(
+                    "{}. Ensure branch '{}' exists remotely.",
+                    stderr.trim(),
+                    branch
+                ),
+            });
+        }
+        info!(
+            "git switch output:\n{}",
+            String::from_utf8_lossy(&checkout.stdout)
+        );
+
+        // 2b. git pull
+        info!("Running (cwd = '{}'): git pull", repo_path);
+        let pull = Command::new("git")
+            .current_dir(repo_path)
+            .arg("pull")
+            .output()
+            .await
+            .map_err(|e| {
+                error!("git pull failed to start: {}", e);
+                CicdError::GitOperationFailed {
+                    operation: "git pull".to_string(),
+                    message: format!("Failed to start git process: {}", e),
+                }
+            })?;
+        if !pull.status.success() {
+            let stderr = String::from_utf8_lossy(&pull.stderr);
+            error!("git pull failed: {}", stderr);
+            return Err(CicdError::GitOperationFailed {
                 operation: "git pull".to_string(),
-                message: format!("Failed to start git process: {}", e),
-            }
-        })?;
-    if !pull.status.success() {
-        let stderr = String::from_utf8_lossy(&pull.stderr);
-        error!("git pull failed: {}", stderr);
-        return Err(CicdError::GitOperationFailed {
-            operation: "git pull".to_string(),
-            message: format!(
-                "{}. Ensure there are no local changes or merge conflicts.",
-                stderr.trim()
-            ),
-        });
+                message: format!(
+                    "{}. Ensure there are no local changes or merge conflicts.",
+                    stderr.trim()
+                ),
+            });
+        }
+        info!(
+            "git pull output:\n{}",
+            String::from_utf8_lossy(&pull.stdout)
+        );
     }
-    info!(
-        "git pull output:\n{}",
-        String::from_utf8_lossy(&pull.stdout)
-    );
 
     // 3. Run the user script (split by whitespace for command + args)
     let mut parts = run_script.split_whitespace();

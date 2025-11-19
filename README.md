@@ -139,41 +139,134 @@ If you running on port 80/443, then it would be `http(s)://your-server.com/webho
 
 ## Use Cases
 
-- **Docker Rebuilds:**
-  Set your `run_script` as something like:
-  ```
-  ./rebuild_and_restart.sh
-  ```
-  and in that shell script, do anything you want:
-  ```sh
-  #!/bin/bash
-  docker-compose build
-  docker-compose up -d
-  ```
+**All customization lives in your scripts.** The runner is intentionally generic - it just handles git operations and runs your scripts. Your use cases could be:
 
-- **Per-branch scripts with fallback:**
-  You can use the `branch_scripts` table to use a special script for `main`, and default to a simpler or different script for all others (using `run_script`).
+- ✅ **Web app deployments** - Node.js, Python, PHP apps with PM2, systemd, or any process manager
+- ✅ **Rust/Go binary compilation** - Build and upload to CDN, S3, or GitHub Releases
+- ✅ **Docker image builds** - Build and push to container registry
+- ✅ **Mobile app builds** - Compile and deploy to TestFlight, Play Store, etc.
+- ✅ **Documentation generation** - Build docs and deploy to GitHub Pages, S3, etc.
+- ✅ **Literally anything git-triggered** - If it can run in a shell script, it can run here
 
-  ```toml
-  [project.branch_scripts]
-  main = "./deploy-production.sh"
-  develop = "./dev-deploy.sh"
-  # No "feature" override, so uses run_script
-  run_script = "./deploy-default.sh"
-  ```
-  Or simply just use `run_script` for everything if you don't need branch-specific behavior.
+### Example Use Cases
 
-- **Custom Bash, Python, Node, Java, Rust, etc.:**
-  ```
-  run_script = "bash special-deploy.sh"
-  run_script = "python3 build.py"
-  run_script = "node deploy.js"
-  run_script = "cargo build --release"
-  ```
-  Any language, as long as it is executable!
+**Docker Rebuilds:**
+```toml
+run_script = "./rebuild_and_restart.sh"
+```
+```sh
+#!/bin/bash
+docker-compose build
+docker-compose up -d
+```
 
-- **Absolute or Relative Scripts:**
-  If you provide an absolute path, that's what is run, with the git repo folder as working directory.
+**Per-branch deployment with PM2:**
+```toml
+[project.branch_scripts]
+main = "./deploy-production.sh"    # Deploy to port 3000
+staging = "./deploy-staging.sh"    # Deploy to port 3001
+develop = "./deploy-develop.sh"    # Deploy to port 3002
+```
+
+**Rust binary to CDN:**
+```sh
+#!/bin/bash
+cargo build --release
+aws s3 cp target/release/myapp s3://my-cdn/downloads/myapp-latest
+```
+
+**Custom Bash, Python, Node, Java, Rust, etc.:**
+```toml
+run_script = "bash special-deploy.sh"
+run_script = "python3 build.py"
+run_script = "node deploy.js"
+run_script = "cargo build --release"
+```
+Any language, as long as it is executable!
+
+---
+
+## API Endpoints
+
+The server provides several endpoints for monitoring and management:
+
+### `GET /` - Health Check
+
+**Plain text response (default):**
+```bash
+curl http://localhost:8888/
+# Returns: "simple_git_cicd - healthy"
+```
+
+**JSON response:**
+```bash
+curl "http://localhost:8888/?format=json"
+```
+```json
+{
+  "name": "simple_git_cicd",
+  "version": "0.1.0",
+  "uptime_seconds": 3600,
+  "current_job": "01234567-89ab-cdef-0123-456789abcdef",
+  "total_projects": 3,
+  "jobs_completed": 42,
+  "status": "healthy"
+}
+```
+
+### `GET /status` - Job Status
+
+Get detailed server and job information with optional filtering:
+
+```bash
+# Get recent jobs
+curl http://localhost:8888/status
+
+# Filter by project
+curl "http://localhost:8888/status?project=myapp"
+
+# Filter by status
+curl "http://localhost:8888/status?status=failed"
+
+# Filter by project and branch
+curl "http://localhost:8888/status?project=myapp&branch=main"
+```
+
+### `GET /job/:id` - Individual Job Details
+
+Get details for a specific job by UUID:
+
+```bash
+curl http://localhost:8888/job/01234567-89ab-cdef-0123-456789abcdef
+```
+
+### `POST /webhook` - GitHub Webhook
+
+This is the endpoint you configure in GitHub webhook settings. The server validates the event, matches the project and branch, and executes the configured script.
+
+### `POST /reload` - Reload Configuration
+
+Reload the configuration file without restarting the server. The reload waits for any currently running job to finish before applying the new configuration.
+
+```bash
+curl -X POST http://localhost:8888/reload
+```
+
+**Response on success:**
+```json
+{
+  "status": "success",
+  "message": "Configuration reloaded successfully"
+}
+```
+
+**Response on error:**
+```json
+{
+  "status": "error",
+  "message": "Failed to parse config: invalid TOML syntax at line 5"
+}
+```
 
 ---
 

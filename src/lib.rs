@@ -1,6 +1,7 @@
 pub mod error;
 pub mod job;
 pub mod utils;
+pub mod webhook;
 
 use chrono::{DateTime, Utc};
 use job::JobStore;
@@ -25,6 +26,14 @@ pub struct ProjectConfig {
     pub branch_scripts: Option<HashMap<String, String>>,
     pub with_webhook_secret: Option<bool>,
     pub webhook_secret: Option<String>,
+
+    // Coming soon: Advanced features
+    pub reset_to_remote: Option<bool>,
+    pub pre_script: Option<String>,
+    pub post_script: Option<String>,
+    pub post_success_script: Option<String>,
+    pub post_failure_script: Option<String>,
+    pub post_always_script: Option<String>,
 }
 
 impl ProjectConfig {
@@ -51,6 +60,11 @@ impl ProjectConfig {
             }
         }
         &self.run_script
+    }
+
+    /// Returns true if git should reset to remote (default: true for CI/CD)
+    pub fn should_reset_to_remote(&self) -> bool {
+        self.reset_to_remote.unwrap_or(true)
     }
 }
 
