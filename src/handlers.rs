@@ -6,6 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 use simple_git_cicd::SharedState;
+use simple_git_cicd::job::Job;
 use simple_git_cicd::utils::{
     find_matching_project_owned, run_job_pipeline, verify_github_signature,
 };
@@ -95,6 +96,21 @@ pub async fn handle_webhook(
             }
         }
 
+        // Create a new job
+        let job = Job::new(repo_name.to_string(), branch_name.to_string());
+        let job_id = job.id.clone();
+
+        // Add job to store
+        {
+            let mut store = state.job_store.lock().await;
+            store.add_job(job.clone());
+        }
+
+        info!(
+            "Created job {} for project '{}' branch '{}'",
+            job_id, repo_name, branch_name
+        );
+
         // Clone/Extract necessary data to move into background task
         let repo_name = repo_name.to_owned();
         let branch_name = branch_name.to_owned();
@@ -109,20 +125,31 @@ pub async fn handle_webhook(
             // Acquire the job lock. Only one job will run at a time.
             // Good for servers with low resources, don't bait the OOM killer
             let _guard = shared_state.job_execution_lock.lock().await;
+
+            // Mark job as running
+            {
+                let mut store = shared_state.job_store.lock().await;
+                store.update_job(&job_id, |j| j.mark_running());
+            }
+
             info!(
-                "Push event for project '{}' branch '{}'. Starting job pipeline.",
-                repo_name, branch_name
+                "Job {} - Push event for project '{}' branch '{}'. Starting job pipeline.",
+                job_id, repo_name, branch_name
             );
 
             let script = project.get_run_script_for_branch(&branch_name);
 
             // Run the job (git checkout, pull, then user script)
             match run_job_pipeline(&branch_name, &repo_path, script).await {
-                Ok(_output) => {
-                    info!("Job completed successfully."); // TODO: add proper logs here
+                Ok(output) => {
+                    info!("Job {} completed successfully.", job_id);
+                    let mut store = shared_state.job_store.lock().await;
+                    store.update_job(&job_id, |j| j.mark_success(output));
                 }
                 Err(e) => {
-                    error!("Job failed: {}", e);
+                    error!("Job {} failed: {}", job_id, e);
+                    let mut store = shared_state.job_store.lock().await;
+                    store.update_job(&job_id, |j| j.mark_failed(e.to_string()));
                 }
             }
         });

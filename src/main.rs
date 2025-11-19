@@ -3,14 +3,17 @@ mod handlers;
 use axum::{Router, routing};
 use handlers::{handle_webhook, root};
 use simple_git_cicd::error::CicdError;
+use simple_git_cicd::job::JobStore;
 use simple_git_cicd::{AppState, CICDConfig};
 use std::fs;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{self, info};
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:8888";
 const DEFAULT_CONFIG_PATH: &str = "cicd_config.toml";
+const DEFAULT_MAX_JOBS: usize = 24;
 
 /// Load and parse the configuration file
 fn load_config(path: &str) -> Result<CICDConfig, CicdError> {
@@ -42,9 +45,14 @@ async fn main() {
         }
     };
 
+    let job_store = Arc::new(Mutex::new(JobStore::new(DEFAULT_MAX_JOBS)));
+    let start_time = Instant::now();
+
     let state = Arc::new(AppState {
         job_execution_lock: Mutex::new(()),
+        job_store,
         config,
+        start_time,
     });
 
     tracing_subscriber::fmt::init();

@@ -1,10 +1,12 @@
 pub mod error;
-pub mod logging;
+pub mod job;
 pub mod utils;
 
+use job::JobStore;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -52,7 +54,9 @@ impl ProjectConfig {
 
 pub struct AppState {
     pub job_execution_lock: Mutex<()>,
+    pub job_store: Arc<Mutex<JobStore>>,
     pub config: CICDConfig,
+    pub start_time: Instant,
 }
 
 pub type SharedState = Arc<AppState>;
