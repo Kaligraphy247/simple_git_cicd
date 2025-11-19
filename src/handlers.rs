@@ -1,10 +1,12 @@
 use axum::{
+    Json,
     body::Bytes,
-    extract::Query,
     extract::State as AxumState,
+    extract::{Path, Query},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use serde_json::json;
 use simple_git_cicd::SharedState;
 use simple_git_cicd::job::Job;
 use simple_git_cicd::utils::{
@@ -15,6 +17,47 @@ use tracing::{self, debug, error, info, warn};
 
 pub async fn root() -> &'static str {
     "Hello, World!"
+}
+
+/// Returns the current server status with job information
+pub async fn status(AxumState(state): AxumState<SharedState>) -> impl IntoResponse {
+    let store = state.job_store.lock().await;
+    let current = store.get_current_job();
+    let queued = store.get_queued_count();
+    let recent = store.get_recent_jobs(10);
+
+    Json(json!({
+        "server": {
+            "name": "simple_git_cicd",
+            "version": env!("CARGO_PKG_VERSION"),
+            "started_at": state.started_at,
+            "uptime_seconds": state.start_time.elapsed().as_secs(),
+        },
+        "jobs": {
+            "current": current,
+            "queued_count": queued,
+            "recent": recent,
+        },
+        "config": {
+            "total_projects": state.config.project.len(),
+        }
+    }))
+}
+
+/// Returns a specific job by ID
+pub async fn get_job(
+    AxumState(state): AxumState<SharedState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let store = state.job_store.lock().await;
+    match store.get_job(&id) {
+        Some(job) => Json(job).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Job not found"})),
+        )
+            .into_response(),
+    }
 }
 
 /// Handles the GitHub webhook POST request.

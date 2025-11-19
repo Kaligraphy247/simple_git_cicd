@@ -2,6 +2,7 @@ pub mod error;
 pub mod job;
 pub mod utils;
 
+use chrono::{DateTime, Utc};
 use job::JobStore;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -57,6 +58,7 @@ pub struct AppState {
     pub job_store: Arc<Mutex<JobStore>>,
     pub config: CICDConfig,
     pub start_time: Instant,
+    pub started_at: DateTime<Utc>,
 }
 
 pub type SharedState = Arc<AppState>;

@@ -1,7 +1,8 @@
 mod handlers;
 
 use axum::{Router, routing};
-use handlers::{handle_webhook, root};
+use chrono::Utc;
+use handlers::{get_job, handle_webhook, root, status};
 use simple_git_cicd::error::CicdError;
 use simple_git_cicd::job::JobStore;
 use simple_git_cicd::{AppState, CICDConfig};
@@ -47,18 +48,22 @@ async fn main() {
 
     let job_store = Arc::new(Mutex::new(JobStore::new(DEFAULT_MAX_JOBS)));
     let start_time = Instant::now();
+    let started_at = Utc::now();
 
     let state = Arc::new(AppState {
         job_execution_lock: Mutex::new(()),
         job_store,
         config,
         start_time,
+        started_at,
     });
 
     tracing_subscriber::fmt::init();
     let app = Router::new()
         .route("/", routing::get(root))
         .route("/webhook", routing::post(handle_webhook))
+        .route("/status", routing::get(status))
+        .route("/job/:id", routing::get(get_job))
         .with_state(state);
 
     info!("Listening on {}", bind_address);
