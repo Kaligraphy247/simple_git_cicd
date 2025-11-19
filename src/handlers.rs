@@ -20,11 +20,38 @@ pub async fn root() -> &'static str {
 }
 
 /// Returns the current server status with job information
-pub async fn status(AxumState(state): AxumState<SharedState>) -> impl IntoResponse {
+/// Supports query parameters: ?project=name&status=failed&branch=main
+pub async fn status(
+    AxumState(state): AxumState<SharedState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
     let store = state.job_store.lock().await;
     let current = store.get_current_job();
     let queued = store.get_queued_count();
-    let recent = store.get_recent_jobs(10);
+
+    // Filter jobs based on query parameters
+    let jobs: Vec<_> = if let Some(project) = params.get("project") {
+        if let Some(branch) = params.get("branch") {
+            // Filter by project AND branch
+            store.get_jobs_by_branch(project, branch)
+        } else {
+            // Filter by project only
+            store.get_jobs_by_project(project)
+        }
+    } else if let Some(status_str) = params.get("status") {
+        // Filter by status
+        use simple_git_cicd::job::JobStatus;
+        match status_str.to_lowercase().as_str() {
+            "queued" => store.get_jobs_by_status(JobStatus::Queued),
+            "running" => store.get_jobs_by_status(JobStatus::Running),
+            "success" => store.get_jobs_by_status(JobStatus::Success),
+            "failed" => store.get_jobs_by_status(JobStatus::Failed),
+            _ => store.get_recent_jobs(10), // Invalid status, return recent
+        }
+    } else {
+        // No filters, return recent 10
+        store.get_recent_jobs(10)
+    };
 
     Json(json!({
         "server": {
@@ -36,7 +63,8 @@ pub async fn status(AxumState(state): AxumState<SharedState>) -> impl IntoRespon
         "jobs": {
             "current": current,
             "queued_count": queued,
-            "recent": recent,
+            "filtered": jobs,
+            "filtered_count": jobs.len(),
         },
         "config": {
             "total_projects": state.config.project.len(),

@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use uuid::Uuid;
 
+/// Maximum size for job output before truncation (1MB)
+pub const MAX_OUTPUT_SIZE: usize = 1024 * 1024;
+
 /// Represents the status of a CI/CD job
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -26,6 +29,7 @@ pub struct Job {
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub output: Option<String>,
+    pub output_truncated: bool,
     pub error: Option<String>,
 }
 
@@ -43,6 +47,7 @@ impl Job {
             started_at: Utc::now(),
             completed_at: None,
             output: None,
+            output_truncated: false,
             error: None,
         }
     }
@@ -52,10 +57,18 @@ impl Job {
         self.status = JobStatus::Running;
     }
 
-    /// Mark job as successful with output
-    pub fn mark_success(&mut self, output: String) {
+    /// Mark job as successful with output (truncates if too large)
+    pub fn mark_success(&mut self, mut output: String) {
         self.status = JobStatus::Success;
         self.completed_at = Some(Utc::now());
+
+        // Truncate output if it's too large
+        if output.len() > MAX_OUTPUT_SIZE {
+            output.truncate(MAX_OUTPUT_SIZE);
+            output.push_str("\n... (output truncated)");
+            self.output_truncated = true;
+        }
+
         self.output = Some(output);
     }
 
