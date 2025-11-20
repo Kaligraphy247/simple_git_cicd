@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import { jobStream } from '$lib/api/sse';
 	import type { StatsResponse, Job } from '$lib/api/types';
@@ -7,12 +6,15 @@
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import { RefreshCw, Activity, Server, GitBranch } from '@lucide/svelte';
+	import * as Empty from '$lib/components/ui/empty';
+	import { RefreshCw, Activity, Server, GitBranch, Inbox } from '@lucide/svelte';
 
 	let stats = $state<StatsResponse | null>(null);
 	let recentJobs = $state<Job[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let lastEvent = $state<any>(null);
+	let streamConnected = $state(false);
 
 	async function loadData() {
 		try {
@@ -27,15 +29,30 @@
 		}
 	}
 
-	onMount(() => {
+	// Subscribe to SSE streams
+	$effect(() => {
+		const unsubscribeEvent = jobStream.lastEvent.subscribe((event) => {
+			lastEvent = event;
+		});
+		const unsubscribeConnected = jobStream.connected.subscribe((connected) => {
+			streamConnected = connected;
+		});
+
+		return () => {
+			unsubscribeEvent();
+			unsubscribeConnected();
+		};
+	});
+
+	// Initialize on mount
+	$effect(() => {
 		loadData();
 		jobStream.connect();
 	});
 
 	// React to SSE events
 	$effect(() => {
-		if (jobStream.lastEvent) {
-			// Refresh data on any job event to keep stats and list in sync
+		if (lastEvent) {
 			loadData();
 		}
 	});
@@ -55,7 +72,7 @@
 	<div class="flex items-center justify-between">
 		<h1 class="text-3xl font-bold tracking-tight">Dashboard</h1>
 		<div class="flex items-center gap-2">
-			{#if jobStream.connected}
+			{#if streamConnected}
 				<span class="flex h-2 w-2 animate-pulse rounded-full bg-green-500"></span>
 				<span class="text-xs text-muted-foreground">Live</span>
 			{:else}
@@ -63,7 +80,7 @@
 				<span class="text-xs text-muted-foreground">Offline</span>
 			{/if}
 			<Button variant="outline" size="icon" onclick={loadData} disabled={loading}>
-				<RefreshCw class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
+				<RefreshCw class={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
 			</Button>
 		</div>
 	</div>
@@ -158,11 +175,17 @@
 					<Skeleton class="h-24 w-full" />
 				</div>
 			{:else if recentJobs.length === 0}
-				<div
-					class="flex h-32 items-center justify-center rounded-md border border-dashed text-muted-foreground"
-				>
-					No jobs found
-				</div>
+				<Empty.Root class="h-32 border">
+					<Empty.Content>
+						<Empty.Media>
+							<Inbox class="h-12 w-12 opacity-50" />
+						</Empty.Media>
+						<Empty.Header>
+							<Empty.Title>No jobs found</Empty.Title>
+							<Empty.Description>Jobs will appear here once webhooks are received</Empty.Description>
+						</Empty.Header>
+					</Empty.Content>
+				</Empty.Root>
 			{:else}
 				<div class="grid gap-4">
 					{#each recentJobs as job (job.id)}

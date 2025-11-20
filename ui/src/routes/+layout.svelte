@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { theme } from '$lib/stores/theme';
 	import { Button } from '$lib/components/ui/button';
+	import { Separator } from '@/components/ui/separator';
+	import { Toaster } from 'svelte-sonner';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import {
 		Sun,
@@ -14,7 +16,6 @@
 		FolderGit,
 		Settings
 	} from '@lucide/svelte';
-	import { Separator } from '@/components/ui/separator';
 
 	let { children } = $props();
 
@@ -34,6 +35,9 @@
 </script>
 
 <div class="mx-4 min-h-screen bg-background font-sans antialiased">
+	<!-- Toaster (Sonner Svelte) -->
+	<Toaster />
+
 	<header
 		class="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"
 	>
