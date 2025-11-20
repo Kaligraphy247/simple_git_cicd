@@ -5,6 +5,7 @@ pub mod job;
 pub mod utils;
 pub mod webhook;
 
+use api::stream::JobEvent;
 use chrono::{DateTime, Utc};
 use db::SqlJobStore;
 use serde::Deserialize;
@@ -12,7 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CICDConfig {
@@ -76,6 +77,7 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub start_time: Instant,
     pub started_at: DateTime<Utc>,
+    pub job_events: broadcast::Sender<JobEvent>,
 }
 
 pub type SharedState = Arc<AppState>;

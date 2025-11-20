@@ -12,6 +12,7 @@ use simple_git_cicd::api::{
     // Core handlers
     root,
     status,
+    stream_jobs,
 };
 use simple_git_cicd::db::{SqlJobStore, init_db};
 use simple_git_cicd::error::CicdError;
@@ -20,7 +21,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{self, info};
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:8888";
@@ -70,6 +71,7 @@ async fn main() {
     let job_store = SqlJobStore::new(pool);
     let start_time = Instant::now();
     let started_at = Utc::now();
+    let (job_events, _) = broadcast::channel(100);
 
     let state = Arc::new(AppState {
         job_execution_lock: Mutex::new(()),
@@ -78,6 +80,7 @@ async fn main() {
         config_path: PathBuf::from(config_path.clone()),
         start_time,
         started_at,
+        job_events,
     });
 
     let app = Router::new()
@@ -92,6 +95,8 @@ async fn main() {
         .route("/api/jobs/{id}/logs", routing::get(get_job_logs))
         .route("/api/projects", routing::get(get_projects))
         .route("/api/stats", routing::get(get_stats))
+        // SSE stream
+        .route("/api/stream/jobs", routing::get(stream_jobs))
         .with_state(state);
 
     info!("Listening on {}", bind_address);

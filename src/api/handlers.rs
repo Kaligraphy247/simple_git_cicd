@@ -13,6 +13,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use tracing::{self, debug, error, info, warn};
 
+use crate::api::stream::JobEvent;
 use crate::job::{Job, JobStatus};
 use crate::utils::{find_matching_project_owned, run_job_pipeline, verify_github_signature};
 use crate::webhook::WebhookData;
@@ -260,6 +261,15 @@ pub async fn handle_webhook(
             job_id, repo_name, branch_name
         );
 
+        // Broadcast job created event
+        let _ = state.job_events.send(JobEvent {
+            event_type: "created".to_string(),
+            job_id: job_id.clone(),
+            project_name: repo_name.to_string(),
+            branch: branch_name.to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+        });
+
         // Build webhook data for pipeline
         let webhook_data = WebhookData {
             project_name: repo_name.to_string(),
@@ -311,6 +321,15 @@ pub async fn handle_webhook(
                 job_id, webhook_data.project_name, webhook_data.branch
             );
 
+            // Broadcast job running event
+            let _ = shared_state.job_events.send(JobEvent {
+                event_type: "running".to_string(),
+                job_id: job_id.clone(),
+                project_name: webhook_data.project_name.clone(),
+                branch: webhook_data.branch.clone(),
+                timestamp: Utc::now().to_rfc3339(),
+            });
+
             // Run the complete pipeline with hooks
             match run_job_pipeline(&project, &webhook_data).await {
                 Ok(output) => {
@@ -322,6 +341,14 @@ pub async fn handle_webhook(
                     {
                         error!("Failed to mark job as success: {}", e);
                     }
+                    // Broadcast success event
+                    let _ = shared_state.job_events.send(JobEvent {
+                        event_type: "success".to_string(),
+                        job_id: job_id.clone(),
+                        project_name: webhook_data.project_name.clone(),
+                        branch: webhook_data.branch.clone(),
+                        timestamp: Utc::now().to_rfc3339(),
+                    });
                 }
                 Err(e) => {
                     error!("Job {} failed: {}", job_id, e);
@@ -338,6 +365,14 @@ pub async fn handle_webhook(
                     {
                         error!("Failed to mark job as failed: {}", db_err);
                     }
+                    // Broadcast failed event
+                    let _ = shared_state.job_events.send(JobEvent {
+                        event_type: "failed".to_string(),
+                        job_id: job_id.clone(),
+                        project_name: webhook_data.project_name.clone(),
+                        branch: webhook_data.branch.clone(),
+                        timestamp: Utc::now().to_rfc3339(),
+                    });
                 }
             }
         });

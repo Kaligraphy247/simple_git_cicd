@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod jobs;
 pub mod projects;
 pub mod stats;
+pub mod stream;
 
 // Re-export core handlers
 pub use handlers::{root, status, handle_webhook, reload_config_endpoint};
@@ -14,3 +15,4 @@ pub use handlers::{root, status, handle_webhook, reload_config_endpoint};
 pub use jobs::{get_jobs, get_job, get_job_logs};
 pub use projects::get_projects;
 pub use stats::get_stats;
+pub use stream::stream_jobs;
