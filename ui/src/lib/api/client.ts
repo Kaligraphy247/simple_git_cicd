@@ -67,21 +67,6 @@ export const api = {
 	},
 
 	async reloadConfig(): Promise<{ status: string; message: string }> {
-		// Note: /reload is at the root, not under /api
-		// This requires proxy setup in vite.config.ts to handle /reload as well
-		const res = await fetch('/reload', { method: 'POST' });
-		if (!res.ok) {
-			let errorMsg = res.statusText;
-			try {
-				const errorBody = await res.json();
-				if (errorBody && errorBody.error) {
-					errorMsg = errorBody.error;
-				}
-			} catch {
-				// ignore
-			}
-			throw new Error(`API Error ${res.status}: ${errorMsg}`);
-		}
-		return res.json();
+		return fetchJson<{ status: string; message: string }>('/reload', { method: 'POST' });
 	}
 };

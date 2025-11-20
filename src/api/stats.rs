@@ -2,11 +2,14 @@
 
 use axum::{
     Json,
-    extract::State as AxumState,
+    extract::{Query, State as AxumState},
+    response::IntoResponse,
 };
 use serde::Serialize;
+use serde_json::json;
+use std::collections::HashMap;
 
-use crate::job::JobStatus;
+use crate::job::{Job, JobStatus};
 use crate::SharedState;
 
 /// Server statistics
@@ -95,4 +98,87 @@ pub async fn get_stats(
     };
 
     Json(StatsResponse { server, jobs })
+}
+
+/// GET /api/status - Server status with job information
+/// Supports query parameters: ?project=name&status=failed&branch=main
+pub async fn status(
+    AxumState(state): AxumState<SharedState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let current = state.job_store.get_current_job().await.ok().flatten();
+    let queued = state.job_store.get_queued_count().await.unwrap_or(0);
+    let completed = state.job_store.get_completed_count().await.unwrap_or(0);
+
+    // Filter jobs based on query parameters
+    let jobs: Vec<Job> = if let Some(project) = params.get("project") {
+        if let Some(branch) = params.get("branch") {
+            state
+                .job_store
+                .get_jobs_by_branch(project, branch, 50)
+                .await
+                .unwrap_or_default()
+        } else {
+            state
+                .job_store
+                .get_jobs_by_project(project, 50)
+                .await
+                .unwrap_or_default()
+        }
+    } else if let Some(status_str) = params.get("status") {
+        match status_str.to_lowercase().as_str() {
+            "queued" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Queued, 50)
+                .await
+                .unwrap_or_default(),
+            "running" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Running, 50)
+                .await
+                .unwrap_or_default(),
+            "success" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Success, 50)
+                .await
+                .unwrap_or_default(),
+            "failed" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Failed, 50)
+                .await
+                .unwrap_or_default(),
+            _ => state
+                .job_store
+                .get_recent_jobs(10)
+                .await
+                .unwrap_or_default(),
+        }
+    } else {
+        state
+            .job_store
+            .get_recent_jobs(10)
+            .await
+            .unwrap_or_default()
+    };
+
+    let config = state.config.read().unwrap();
+
+    Json(json!({
+        "server": {
+            "name": "simple_git_cicd",
+            "version": env!("CARGO_PKG_VERSION"),
+            "started_at": state.started_at,
+            "uptime_seconds": state.start_time.elapsed().as_secs(),
+        },
+        "jobs": {
+            "current": current,
+            "queued_count": queued,
+            "completed_count": completed,
+            "filtered": jobs,
+            "filtered_count": jobs.len(),
+        },
+        "config": {
+            "total_projects": config.project.len(),
+        }
+    }))
 }

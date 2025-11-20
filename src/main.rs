@@ -4,14 +4,11 @@ use simple_git_cicd::api::{
     get_config,
     get_job,
     get_job_logs,
-    // API handlers
     get_jobs,
     get_projects,
     get_stats,
     handle_webhook,
     reload_config_endpoint,
-    // Core handlers
-    root,
     status,
     stream_jobs,
 };
@@ -86,12 +83,11 @@ async fn main() {
     });
 
     let app = Router::new()
-        // Core endpoints
-        .route("/", routing::get(root))
+        // Webhook endpoint (kept at root for GitHub compatibility)
         .route("/webhook", routing::post(handle_webhook))
-        .route("/status", routing::get(status))
-        .route("/reload", routing::post(reload_config_endpoint))
         // API endpoints
+        .route("/api/status", routing::get(status))
+        .route("/api/reload", routing::post(reload_config_endpoint))
         .route("/api/jobs", routing::get(get_jobs))
         .route("/api/jobs/{id}", routing::get(get_job))
         .route("/api/jobs/{id}/logs", routing::get(get_job_logs))

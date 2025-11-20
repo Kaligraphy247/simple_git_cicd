@@ -1,136 +1,20 @@
-//! Core HTTP handlers for webhook processing and server status
+//! Webhook handler for GitHub push events
 
 use axum::{
-    Json,
     body::Bytes,
     extract::Query,
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
 };
 use chrono::Utc;
-use serde_json::json;
 use std::collections::HashMap;
-use tracing::{self, debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::api::stream::JobEvent;
 use crate::job::{Job, JobStatus};
 use crate::utils::{find_matching_project_owned, run_job_pipeline, verify_github_signature};
 use crate::webhook::WebhookData;
-use crate::{SharedState, reload_config};
-
-/// Root health check endpoint
-/// Supports ?format=json for detailed JSON response
-pub async fn root(
-    AxumState(state): AxumState<SharedState>,
-    Query(params): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
-    let format = params.get("format").map(|s| s.as_str());
-
-    if format == Some("json") {
-        let current_job = state.job_store.get_current_job().await.ok().flatten();
-        let completed_count = state.job_store.get_completed_count().await.unwrap_or(0);
-        let config = state.config.read().unwrap();
-
-        Json(json!({
-            "name": "simple_git_cicd",
-            "version": env!("CARGO_PKG_VERSION"),
-            "uptime_seconds": state.start_time.elapsed().as_secs(),
-            "current_job": current_job.map(|j| j.id),
-            "total_projects": config.project.len(),
-            "jobs_completed": completed_count,
-            "status": "healthy"
-        }))
-        .into_response()
-    } else {
-        "simple_git_cicd - healthy".into_response()
-    }
-}
-
-/// Returns the current server status with job information
-/// Supports query parameters: ?project=name&status=failed&branch=main
-pub async fn status(
-    AxumState(state): AxumState<SharedState>,
-    Query(params): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
-    let current = state.job_store.get_current_job().await.ok().flatten();
-    let queued = state.job_store.get_queued_count().await.unwrap_or(0);
-
-    // Filter jobs based on query parameters
-    let jobs: Vec<Job> = if let Some(project) = params.get("project") {
-        if let Some(branch) = params.get("branch") {
-            // Filter by project AND branch
-            state
-                .job_store
-                .get_jobs_by_branch(project, branch, 50)
-                .await
-                .unwrap_or_default()
-        } else {
-            // Filter by project only
-            state
-                .job_store
-                .get_jobs_by_project(project, 50)
-                .await
-                .unwrap_or_default()
-        }
-    } else if let Some(status_str) = params.get("status") {
-        // Filter by status
-        match status_str.to_lowercase().as_str() {
-            "queued" => state
-                .job_store
-                .get_jobs_by_status(JobStatus::Queued, 50)
-                .await
-                .unwrap_or_default(),
-            "running" => state
-                .job_store
-                .get_jobs_by_status(JobStatus::Running, 50)
-                .await
-                .unwrap_or_default(),
-            "success" => state
-                .job_store
-                .get_jobs_by_status(JobStatus::Success, 50)
-                .await
-                .unwrap_or_default(),
-            "failed" => state
-                .job_store
-                .get_jobs_by_status(JobStatus::Failed, 50)
-                .await
-                .unwrap_or_default(),
-            _ => state
-                .job_store
-                .get_recent_jobs(10)
-                .await
-                .unwrap_or_default(), // Invalid status, return recent
-        }
-    } else {
-        // No filters, return recent 10
-        state
-            .job_store
-            .get_recent_jobs(10)
-            .await
-            .unwrap_or_default()
-    };
-
-    let config = state.config.read().unwrap();
-
-    Json(json!({
-        "server": {
-            "name": "simple_git_cicd",
-            "version": env!("CARGO_PKG_VERSION"),
-            "started_at": state.started_at,
-            "uptime_seconds": state.start_time.elapsed().as_secs(),
-        },
-        "jobs": {
-            "current": current,
-            "queued_count": queued,
-            "filtered": jobs,
-            "filtered_count": jobs.len(),
-        },
-        "config": {
-            "total_projects": config.project.len(),
-        }
-    }))
-}
+use crate::SharedState;
 
 /// Handles the GitHub webhook POST request.
 pub async fn handle_webhook(
@@ -138,7 +22,7 @@ pub async fn handle_webhook(
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     body: Bytes,
-) -> impl IntoResponse {
+) -> StatusCode {
     if cfg!(debug_assertions) && params.contains_key("dev") {
         debug!("Debug mode");
         debug!("Query Params: {:?}", params);
@@ -171,12 +55,11 @@ pub async fn handle_webhook(
         error!("No ref or repository.name field in push event payload");
         return StatusCode::BAD_REQUEST;
     }
-    let branch_ref = branch_ref.unwrap(); // full reference to the branch_ref
+    let branch_ref = branch_ref.unwrap();
     let branch_name = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
     let repo_name = repo_name.unwrap();
 
     // Find matching project config based on repo name and branch
-    // Clone the project config and drop the lock immediately
     let maybe_project = {
         let config = state.config.read().unwrap();
         find_matching_project_owned(&config, repo_name, branch_name)
@@ -185,7 +68,6 @@ pub async fn handle_webhook(
     if let Some(project) = maybe_project {
         // Per-project webhook signature validation if required
         if project.needs_webhook_secret() {
-            // Validate there is a signature header and a valid secret
             let signature_opt = headers
                 .get("X-Hub-Signature-256")
                 .and_then(|v| v.to_str().ok());
@@ -225,7 +107,6 @@ pub async fn handle_webhook(
             .and_then(|c| c.get("message"))
             .and_then(|v| v.as_str())
             .map(|s| {
-                // Truncate commit messages to 500 chars (they can be very long for squashed commits)
                 const MAX_COMMIT_MSG_LEN: usize = 500;
                 if s.len() > MAX_COMMIT_MSG_LEN {
                     format!("{}... (truncated)", &s[..MAX_COMMIT_MSG_LEN])
@@ -299,11 +180,9 @@ pub async fn handle_webhook(
         // Get shared state for background task
         let shared_state = state.clone();
 
-        // Spawn a background async task to process job, which might be long running
-        // I see you Nextjs..., but seriously tasks like rebuilding a docker image etc
+        // Spawn a background async task to process job
         tokio::spawn(async move {
             // Acquire the job lock. Only one job will run at a time.
-            // Good for servers with low resources, don't bait the OOM killer
             let _guard = shared_state.job_execution_lock.lock().await;
 
             // Mark job as running
@@ -341,7 +220,6 @@ pub async fn handle_webhook(
                     {
                         error!("Failed to mark job as success: {}", e);
                     }
-                    // Broadcast success event
                     let _ = shared_state.job_events.send(JobEvent {
                         event_type: "success".to_string(),
                         job_id: job_id.clone(),
@@ -365,7 +243,6 @@ pub async fn handle_webhook(
                     {
                         error!("Failed to mark job as failed: {}", db_err);
                     }
-                    // Broadcast failed event
                     let _ = shared_state.job_events.send(JobEvent {
                         event_type: "failed".to_string(),
                         job_id: job_id.clone(),
@@ -377,7 +254,6 @@ pub async fn handle_webhook(
             }
         });
 
-        // Return immediately so Github webhook request responds within 10 seconds
         StatusCode::OK
     } else {
         warn!(
@@ -385,41 +261,5 @@ pub async fn handle_webhook(
             repo_name, branch_name
         );
         StatusCode::NO_CONTENT
-    }
-}
-
-/// Reload configuration from disk
-/// Waits for current job to finish before applying the new config
-pub async fn reload_config_endpoint(AxumState(state): AxumState<SharedState>) -> impl IntoResponse {
-    // Wait for current job to finish before reloading
-    let _guard = state.job_execution_lock.lock().await;
-
-    match reload_config(&state.config_path).await {
-        Ok(new_config) => {
-            // Acquire write lock on shared config
-            let mut config = state.config.write().unwrap();
-            // Dereference guard (*config) to overwrite the inner data
-            *config = new_config;
-            info!(
-                "Configuration reloaded successfully from {:?}",
-                state.config_path
-            );
-            Json(json!({
-                "status": "success",
-                "message": "Configuration reloaded successfully"
-            }))
-            .into_response()
-        }
-        Err(e) => {
-            error!("Failed to reload config: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "status": "error",
-                    "message": e.to_string()
-                })),
-            )
-                .into_response()
-        }
     }
 }
