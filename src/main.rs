@@ -1,6 +1,7 @@
 use axum::{Router, routing};
 use chrono::Utc;
 use simple_git_cicd::api::{
+    get_config,
     get_job,
     get_job_logs,
     // API handlers
@@ -21,7 +22,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 use tracing::{self, info};
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:8888";
@@ -95,6 +96,7 @@ async fn main() {
         .route("/api/jobs/{id}/logs", routing::get(get_job_logs))
         .route("/api/projects", routing::get(get_projects))
         .route("/api/stats", routing::get(get_stats))
+        .route("/api/config/current", routing::get(get_config))
         // SSE stream
         .route("/api/stream/jobs", routing::get(stream_jobs))
         .with_state(state);
