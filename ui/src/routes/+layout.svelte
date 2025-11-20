@@ -34,9 +34,9 @@
 	}
 </script>
 
-<div class="mx-4 min-h-screen bg-background font-sans antialiased">
+<div class="mx-auto min-h-screen max-w-7xl bg-background px-4 font-sans antialiased">
 	<!-- Toaster (Sonner Svelte) -->
-	<Toaster />
+	<Toaster theme={'system'} richColors={true} />
 
 	<header
 		class="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"

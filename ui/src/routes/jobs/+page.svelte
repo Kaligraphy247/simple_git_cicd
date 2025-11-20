@@ -170,17 +170,17 @@
 		</div>
 	{/if}
 
-	<!-- Filter Bar -->
-	<div class="rounded-lg border bg-card p-4">
+	<!-- Filter Bar (disabled for now) -->
+	<div class="rounded-lg border bg-card p-4 opacity-50 pointer-events-none">
 		<div class="mb-3 flex items-center gap-2">
 			<Filter class="h-4 w-4 text-muted-foreground" />
-			<h2 class="text-sm font-semibold">Filters</h2>
+			<h2 class="text-sm font-semibold">Filters (Coming Soon)</h2>
 		</div>
 
 		<div class="grid gap-4 md:grid-cols-4">
 			<div class="space-y-2">
 				<Label for="project-filter">Project</Label>
-				<Select.Root type="single" bind:value={selectedProject}>
+				<Select.Root type="single" bind:value={selectedProject} onValueChange={applyFilters}>
 					<Select.Trigger id="project-filter">
 						{projectOptions.find((p) => p.value === selectedProject)?.label || 'All Projects'}
 					</Select.Trigger>
@@ -194,7 +194,7 @@
 
 			<div class="space-y-2">
 				<Label for="status-filter">Status</Label>
-				<Select.Root type="single" bind:value={selectedStatus}>
+				<Select.Root type="single" bind:value={selectedStatus} onValueChange={applyFilters}>
 					<Select.Trigger id="status-filter">
 						{statusOptions.find((s) => s.value === selectedStatus)?.label || 'All Statuses'}
 					</Select.Trigger>
@@ -213,6 +213,7 @@
 					type="text"
 					placeholder="Filter by branch..."
 					bind:value={branchFilter}
+					onkeydown={(e) => e.key === 'Enter' && applyFilters()}
 				/>
 			</div>
 

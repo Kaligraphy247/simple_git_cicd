@@ -3,6 +3,7 @@
 	import { api } from '$lib/api/client';
 	import { jobStream } from '$lib/api/sse';
 	import type { Job, JobLog } from '$lib/api/types';
+	import { toast } from 'svelte-sonner';
 	import { formatDate, formatDuration } from '$lib/utils';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DurationBadge from '$lib/components/DurationBadge.svelte';
@@ -51,6 +52,7 @@
 	async function copyToClipboard(text: string) {
 		try {
 			await navigator.clipboard.writeText(text);
+			toast.success('Copied');
 		} catch (e) {
 			console.error('Failed to copy:', e);
 		}

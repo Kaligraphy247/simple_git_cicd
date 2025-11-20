@@ -386,6 +386,33 @@ impl SqlJobStore {
 
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
+
+    /// Get jobs by branch only (across all projects)
+    pub async fn get_jobs_by_branch_only(
+        &self,
+        branch: &str,
+        limit: i64,
+    ) -> Result<Vec<Job>, CicdError> {
+        let rows = sqlx::query_as::<_, JobRow>(
+            r#"
+            SELECT
+                id, project_name, branch, status,
+                commit_sha, commit_message, commit_author_name,
+                started_at, completed_at, output, output_truncated, error
+            FROM jobs
+            WHERE branch = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            "#,
+        )
+        .bind(branch)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| CicdError::DatabaseError(format!("Failed to fetch jobs by branch: {}", e)))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
 }
 
 // Helper struct to map DB row to Job struct
