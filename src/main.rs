@@ -65,7 +65,7 @@ async fn main() {
         .route("/", routing::get(root))
         .route("/webhook", routing::post(handle_webhook))
         .route("/status", routing::get(status))
-        .route("/job/:id", routing::get(get_job))
+        .route("/job/{id}", routing::get(get_job))
         .route("/reload", routing::post(reload_config_endpoint))
         .with_state(state);
 
