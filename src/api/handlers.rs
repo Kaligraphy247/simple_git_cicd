@@ -1,21 +1,22 @@
+//! Core HTTP handlers for webhook processing and server status
+
 use axum::{
     Json,
     body::Bytes,
+    extract::Query,
     extract::State as AxumState,
-    extract::{Path, Query},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use chrono::Utc;
 use serde_json::json;
-use simple_git_cicd::job::{Job, JobStatus};
-use simple_git_cicd::utils::{
-    find_matching_project_owned, run_job_pipeline, verify_github_signature,
-};
-use simple_git_cicd::webhook::WebhookData;
-use simple_git_cicd::{reload_config, SharedState};
 use std::collections::HashMap;
 use tracing::{self, debug, error, info, warn};
+
+use crate::job::{Job, JobStatus};
+use crate::utils::{find_matching_project_owned, run_job_pipeline, verify_github_signature};
+use crate::webhook::WebhookData;
+use crate::{SharedState, reload_config};
 
 /// Root health check endpoint
 /// Supports ?format=json for detailed JSON response
@@ -58,23 +59,55 @@ pub async fn status(
     let jobs: Vec<Job> = if let Some(project) = params.get("project") {
         if let Some(branch) = params.get("branch") {
             // Filter by project AND branch
-            state.job_store.get_jobs_by_branch(project, branch, 50).await.unwrap_or_default()
+            state
+                .job_store
+                .get_jobs_by_branch(project, branch, 50)
+                .await
+                .unwrap_or_default()
         } else {
             // Filter by project only
-            state.job_store.get_jobs_by_project(project, 50).await.unwrap_or_default()
+            state
+                .job_store
+                .get_jobs_by_project(project, 50)
+                .await
+                .unwrap_or_default()
         }
     } else if let Some(status_str) = params.get("status") {
         // Filter by status
         match status_str.to_lowercase().as_str() {
-            "queued" => state.job_store.get_jobs_by_status(JobStatus::Queued, 50).await.unwrap_or_default(),
-            "running" => state.job_store.get_jobs_by_status(JobStatus::Running, 50).await.unwrap_or_default(),
-            "success" => state.job_store.get_jobs_by_status(JobStatus::Success, 50).await.unwrap_or_default(),
-            "failed" => state.job_store.get_jobs_by_status(JobStatus::Failed, 50).await.unwrap_or_default(),
-            _ => state.job_store.get_recent_jobs(10).await.unwrap_or_default(), // Invalid status, return recent
+            "queued" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Queued, 50)
+                .await
+                .unwrap_or_default(),
+            "running" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Running, 50)
+                .await
+                .unwrap_or_default(),
+            "success" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Success, 50)
+                .await
+                .unwrap_or_default(),
+            "failed" => state
+                .job_store
+                .get_jobs_by_status(JobStatus::Failed, 50)
+                .await
+                .unwrap_or_default(),
+            _ => state
+                .job_store
+                .get_recent_jobs(10)
+                .await
+                .unwrap_or_default(), // Invalid status, return recent
         }
     } else {
         // No filters, return recent 10
-        state.job_store.get_recent_jobs(10).await.unwrap_or_default()
+        state
+            .job_store
+            .get_recent_jobs(10)
+            .await
+            .unwrap_or_default()
     };
 
     let config = state.config.read().unwrap();
@@ -96,26 +129,6 @@ pub async fn status(
             "total_projects": config.project.len(),
         }
     }))
-}
-
-/// Returns a specific job by ID
-pub async fn get_job(
-    AxumState(state): AxumState<SharedState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
-    match state.job_store.get_job(&id).await {
-        Ok(Some(job)) => Json(job).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Job not found"})),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
-            .into_response(),
-    }
 }
 
 /// Handles the GitHub webhook POST request.
@@ -284,7 +297,11 @@ pub async fn handle_webhook(
             let _guard = shared_state.job_execution_lock.lock().await;
 
             // Mark job as running
-            if let Err(e) = shared_state.job_store.update_job_status(&job_id, JobStatus::Running).await {
+            if let Err(e) = shared_state
+                .job_store
+                .update_job_status(&job_id, JobStatus::Running)
+                .await
+            {
                 error!("Failed to update job status to running: {}", e);
                 return;
             }
@@ -298,25 +315,27 @@ pub async fn handle_webhook(
             match run_job_pipeline(&project, &webhook_data).await {
                 Ok(output) => {
                     info!("Job {} completed successfully.", job_id);
-                    if let Err(e) = shared_state.job_store.complete_job(
-                        &job_id,
-                        JobStatus::Success,
-                        Some(output),
-                        None,
-                        Utc::now(),
-                    ).await {
+                    if let Err(e) = shared_state
+                        .job_store
+                        .complete_job(&job_id, JobStatus::Success, Some(output), None, Utc::now())
+                        .await
+                    {
                         error!("Failed to mark job as success: {}", e);
                     }
                 }
                 Err(e) => {
                     error!("Job {} failed: {}", job_id, e);
-                    if let Err(db_err) = shared_state.job_store.complete_job(
-                        &job_id,
-                        JobStatus::Failed,
-                        None,
-                        Some(e.to_string()),
-                        Utc::now(),
-                    ).await {
+                    if let Err(db_err) = shared_state
+                        .job_store
+                        .complete_job(
+                            &job_id,
+                            JobStatus::Failed,
+                            None,
+                            Some(e.to_string()),
+                            Utc::now(),
+                        )
+                        .await
+                    {
                         error!("Failed to mark job as failed: {}", db_err);
                     }
                 }

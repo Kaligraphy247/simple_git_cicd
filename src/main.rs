@@ -1,8 +1,18 @@
-mod handlers;
-
 use axum::{Router, routing};
 use chrono::Utc;
-use handlers::{get_job, handle_webhook, reload_config_endpoint, root, status};
+use simple_git_cicd::api::{
+    get_job,
+    get_job_logs,
+    // API handlers
+    get_jobs,
+    get_projects,
+    get_stats,
+    handle_webhook,
+    reload_config_endpoint,
+    // Core handlers
+    root,
+    status,
+};
 use simple_git_cicd::db::{SqlJobStore, init_db};
 use simple_git_cicd::error::CicdError;
 use simple_git_cicd::{AppState, CICDConfig};
@@ -71,11 +81,17 @@ async fn main() {
     });
 
     let app = Router::new()
+        // Core endpoints
         .route("/", routing::get(root))
         .route("/webhook", routing::post(handle_webhook))
         .route("/status", routing::get(status))
-        .route("/job/{id}", routing::get(get_job))
         .route("/reload", routing::post(reload_config_endpoint))
+        // API endpoints
+        .route("/api/jobs", routing::get(get_jobs))
+        .route("/api/jobs/{id}", routing::get(get_job))
+        .route("/api/jobs/{id}/logs", routing::get(get_job_logs))
+        .route("/api/projects", routing::get(get_projects))
+        .route("/api/stats", routing::get(get_stats))
         .with_state(state);
 
     info!("Listening on {}", bind_address);
