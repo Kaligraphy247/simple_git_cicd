@@ -17,6 +17,7 @@ use simple_git_cicd::api::{
 };
 use simple_git_cicd::db::{SqlJobStore, init_db};
 use simple_git_cicd::error::CicdError;
+use simple_git_cicd::ui::serve_ui;
 use simple_git_cicd::{AppState, CICDConfig};
 use std::fs;
 use std::path::PathBuf;
@@ -99,7 +100,9 @@ async fn main() {
         .route("/api/config/current", routing::get(get_config))
         // SSE stream
         .route("/api/stream/jobs", routing::get(stream_jobs))
-        .with_state(state);
+        .with_state(state)
+        // UI fallback - serves embedded static files
+        .fallback(serve_ui);
 
     info!("Listening on {}", bind_address);
     info!("Using config at {:?}", config_path);

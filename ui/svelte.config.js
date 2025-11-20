@@ -7,7 +7,13 @@ const config = {
 	// for more information about preprocessors
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter(),
+		adapter: adapter({
+			pages: 'dist',
+			assets: 'dist',
+			fallback: 'index.html',
+			precompress: false,
+			strict: true
+		}),
 		alias: {
 			'@/*': './src/lib'
 		}

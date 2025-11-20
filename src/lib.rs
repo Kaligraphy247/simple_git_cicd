@@ -2,6 +2,7 @@ pub mod api;
 pub mod db;
 pub mod error;
 pub mod job;
+pub mod ui;
 pub mod utils;
 pub mod webhook;
 
