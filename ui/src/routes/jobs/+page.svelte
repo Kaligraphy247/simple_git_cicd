@@ -171,7 +171,7 @@
 	{/if}
 
 	<!-- Filter Bar (disabled for now) -->
-	<div class="rounded-lg border bg-card p-4 opacity-50 pointer-events-none">
+	<div class="pointer-events-none rounded-lg border bg-card p-4 opacity-50">
 		<div class="mb-3 flex items-center gap-2">
 			<Filter class="h-4 w-4 text-muted-foreground" />
 			<h2 class="text-sm font-semibold">Filters (Coming Soon)</h2>
@@ -240,9 +240,9 @@
 	<!-- Jobs List -->
 	{#if loading && jobs.length === 0}
 		<div class="space-y-4">
-			<Skeleton class="h-24 w-full" />
-			<Skeleton class="h-24 w-full" />
-			<Skeleton class="h-24 w-full" />
+			<Skeleton class="h-18 w-full" />
+			<Skeleton class="h-18 w-full" />
+			<Skeleton class="h-18 w-full" />
 		</div>
 	{:else if jobs.length === 0}
 		<Empty.Root class="h-64 border">

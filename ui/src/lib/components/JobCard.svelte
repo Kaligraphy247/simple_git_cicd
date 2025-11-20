@@ -18,7 +18,7 @@
 
 <a href="/jobs/{job.id}" class="group block">
 	<Card class="transition-all hover:border-primary/50 hover:shadow-md">
-		<CardContent class="flex items-center justify-between gap-4 p-4">
+		<CardContent class="flex items-center justify-between gap-4 px-4">
 			<div class="flex min-w-0 items-center gap-4">
 				<StatusBadge status={job.status} />
 
