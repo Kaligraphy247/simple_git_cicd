@@ -6,8 +6,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use chrono::Utc;
 use serde_json::json;
-use simple_git_cicd::job::Job;
+use simple_git_cicd::job::{Job, JobStatus};
 use simple_git_cicd::utils::{
     find_matching_project_owned, run_job_pipeline, verify_github_signature,
 };
@@ -25,16 +26,17 @@ pub async fn root(
     let format = params.get("format").map(|s| s.as_str());
 
     if format == Some("json") {
-        let store = state.job_store.lock().await;
+        let current_job = state.job_store.get_current_job().await.ok().flatten();
+        let completed_count = state.job_store.get_completed_count().await.unwrap_or(0);
         let config = state.config.read().unwrap();
 
         Json(json!({
             "name": "simple_git_cicd",
             "version": env!("CARGO_PKG_VERSION"),
             "uptime_seconds": state.start_time.elapsed().as_secs(),
-            "current_job": store.get_current_job().map(|j| j.id.clone()),
+            "current_job": current_job.map(|j| j.id),
             "total_projects": config.project.len(),
-            "jobs_completed": store.get_completed_count(),
+            "jobs_completed": completed_count,
             "status": "healthy"
         }))
         .into_response()
@@ -49,32 +51,30 @@ pub async fn status(
     AxumState(state): AxumState<SharedState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let store = state.job_store.lock().await;
-    let current = store.get_current_job();
-    let queued = store.get_queued_count();
+    let current = state.job_store.get_current_job().await.ok().flatten();
+    let queued = state.job_store.get_queued_count().await.unwrap_or(0);
 
     // Filter jobs based on query parameters
-    let jobs: Vec<_> = if let Some(project) = params.get("project") {
+    let jobs: Vec<Job> = if let Some(project) = params.get("project") {
         if let Some(branch) = params.get("branch") {
             // Filter by project AND branch
-            store.get_jobs_by_branch(project, branch)
+            state.job_store.get_jobs_by_branch(project, branch, 50).await.unwrap_or_default()
         } else {
             // Filter by project only
-            store.get_jobs_by_project(project)
+            state.job_store.get_jobs_by_project(project, 50).await.unwrap_or_default()
         }
     } else if let Some(status_str) = params.get("status") {
         // Filter by status
-        use simple_git_cicd::job::JobStatus;
         match status_str.to_lowercase().as_str() {
-            "queued" => store.get_jobs_by_status(JobStatus::Queued),
-            "running" => store.get_jobs_by_status(JobStatus::Running),
-            "success" => store.get_jobs_by_status(JobStatus::Success),
-            "failed" => store.get_jobs_by_status(JobStatus::Failed),
-            _ => store.get_recent_jobs(10), // Invalid status, return recent
+            "queued" => state.job_store.get_jobs_by_status(JobStatus::Queued, 50).await.unwrap_or_default(),
+            "running" => state.job_store.get_jobs_by_status(JobStatus::Running, 50).await.unwrap_or_default(),
+            "success" => state.job_store.get_jobs_by_status(JobStatus::Success, 50).await.unwrap_or_default(),
+            "failed" => state.job_store.get_jobs_by_status(JobStatus::Failed, 50).await.unwrap_or_default(),
+            _ => state.job_store.get_recent_jobs(10).await.unwrap_or_default(), // Invalid status, return recent
         }
     } else {
         // No filters, return recent 10
-        store.get_recent_jobs(10)
+        state.job_store.get_recent_jobs(10).await.unwrap_or_default()
     };
 
     let config = state.config.read().unwrap();
@@ -103,12 +103,16 @@ pub async fn get_job(
     AxumState(state): AxumState<SharedState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let store = state.job_store.lock().await;
-    match store.get_job(&id) {
-        Some(job) => Json(job).into_response(),
-        None => (
+    match state.job_store.get_job(&id).await {
+        Ok(Some(job)) => Json(job).into_response(),
+        Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Job not found"})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
         )
             .into_response(),
     }
@@ -197,14 +201,45 @@ pub async fn handle_webhook(
             }
         }
 
-        // Create a new job
-        let job = Job::new(repo_name.to_string(), branch_name.to_string());
+        // Extract webhook data from payload
+        let commit_sha = payload
+            .get("after")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let commit_message = payload
+            .get("head_commit")
+            .and_then(|c| c.get("message"))
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                // Truncate commit messages to 500 chars (they can be very long for squashed commits)
+                const MAX_COMMIT_MSG_LEN: usize = 500;
+                if s.len() > MAX_COMMIT_MSG_LEN {
+                    format!("{}... (truncated)", &s[..MAX_COMMIT_MSG_LEN])
+                } else {
+                    s.to_string()
+                }
+            });
+        let commit_author_name = payload
+            .get("head_commit")
+            .and_then(|c| c.get("author"))
+            .and_then(|a| a.get("name"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Create a new job with webhook data
+        let job = Job::from_webhook(
+            repo_name.to_string(),
+            branch_name.to_string(),
+            commit_sha.clone(),
+            commit_message.clone(),
+            commit_author_name.clone(),
+        );
         let job_id = job.id.clone();
 
         // Add job to store
-        {
-            let mut store = state.job_store.lock().await;
-            store.add_job(job.clone());
+        if let Err(e) = state.job_store.create_job(&job).await {
+            error!("Failed to create job in database: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR;
         }
 
         info!(
@@ -212,34 +247,14 @@ pub async fn handle_webhook(
             job_id, repo_name, branch_name
         );
 
-        // Extract webhook data from payload
+        // Build webhook data for pipeline
         let webhook_data = WebhookData {
             project_name: repo_name.to_string(),
             branch: branch_name.to_string(),
             repo_path: project.repo_path.clone(),
-            commit_sha: payload
-                .get("after")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            commit_message: payload
-                .get("head_commit")
-                .and_then(|c| c.get("message"))
-                .and_then(|v| v.as_str())
-                .map(|s| {
-                    // Truncate commit messages to 500 chars (they can be very long for squashed commits)
-                    const MAX_COMMIT_MSG_LEN: usize = 500;
-                    if s.len() > MAX_COMMIT_MSG_LEN {
-                        format!("{}... (truncated)", &s[..MAX_COMMIT_MSG_LEN])
-                    } else {
-                        s.to_string()
-                    }
-                }),
-            commit_author_name: payload
-                .get("head_commit")
-                .and_then(|c| c.get("author"))
-                .and_then(|a| a.get("name"))
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            commit_sha,
+            commit_message,
+            commit_author_name,
             commit_author_email: payload
                 .get("head_commit")
                 .and_then(|c| c.get("author"))
@@ -269,9 +284,9 @@ pub async fn handle_webhook(
             let _guard = shared_state.job_execution_lock.lock().await;
 
             // Mark job as running
-            {
-                let mut store = shared_state.job_store.lock().await;
-                store.update_job(&job_id, |j| j.mark_running());
+            if let Err(e) = shared_state.job_store.update_job_status(&job_id, JobStatus::Running).await {
+                error!("Failed to update job status to running: {}", e);
+                return;
             }
 
             info!(
@@ -283,13 +298,27 @@ pub async fn handle_webhook(
             match run_job_pipeline(&project, &webhook_data).await {
                 Ok(output) => {
                     info!("Job {} completed successfully.", job_id);
-                    let mut store = shared_state.job_store.lock().await;
-                    store.update_job(&job_id, |j| j.mark_success(output));
+                    if let Err(e) = shared_state.job_store.complete_job(
+                        &job_id,
+                        JobStatus::Success,
+                        Some(output),
+                        None,
+                        Utc::now(),
+                    ).await {
+                        error!("Failed to mark job as success: {}", e);
+                    }
                 }
                 Err(e) => {
                     error!("Job {} failed: {}", job_id, e);
-                    let mut store = shared_state.job_store.lock().await;
-                    store.update_job(&job_id, |j| j.mark_failed(e.to_string()));
+                    if let Err(db_err) = shared_state.job_store.complete_job(
+                        &job_id,
+                        JobStatus::Failed,
+                        None,
+                        Some(e.to_string()),
+                        Utc::now(),
+                    ).await {
+                        error!("Failed to mark job as failed: {}", db_err);
+                    }
                 }
             }
         });

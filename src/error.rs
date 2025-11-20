@@ -20,6 +20,9 @@ pub enum CicdError {
 
     #[error("TOML parsing error: {0}")]
     TomlParseError(#[from] toml::de::Error),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 }
 
 /// Helper type for Results that use CicdError

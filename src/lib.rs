@@ -1,10 +1,11 @@
+pub mod db;
 pub mod error;
 pub mod job;
 pub mod utils;
 pub mod webhook;
 
 use chrono::{DateTime, Utc};
-use job::JobStore;
+use db::SqlJobStore;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -69,7 +70,7 @@ impl ProjectConfig {
 
 pub struct AppState {
     pub job_execution_lock: Mutex<()>,
-    pub job_store: Arc<Mutex<JobStore>>,
+    pub job_store: SqlJobStore,
     pub config: RwLock<CICDConfig>,
     pub config_path: PathBuf,
     pub start_time: Instant,

@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use uuid::Uuid;
 
 /// Maximum size for job output before truncation (1MB)
@@ -52,6 +51,30 @@ impl Job {
         }
     }
 
+    /// Create a new job from webhook data
+    pub fn from_webhook(
+        project_name: String,
+        branch: String,
+        commit_sha: Option<String>,
+        commit_message: Option<String>,
+        commit_author: Option<String>,
+    ) -> Self {
+        Self {
+            id: Uuid::now_v7().to_string(),
+            project_name,
+            branch,
+            commit_sha,
+            commit_message,
+            commit_author,
+            status: JobStatus::Queued,
+            started_at: Utc::now(),
+            completed_at: None,
+            output: None,
+            output_truncated: false,
+            error: None,
+        }
+    }
+
     /// Mark job as running
     pub fn mark_running(&mut self) {
         self.status = JobStatus::Running;
@@ -77,104 +100,5 @@ impl Job {
         self.status = JobStatus::Failed;
         self.completed_at = Some(Utc::now());
         self.error = Some(error);
-    }
-}
-
-/// In-memory store for jobs with a configurable size limit
-pub struct JobStore {
-    jobs: VecDeque<Job>,
-    max_jobs: usize,
-}
-
-impl JobStore {
-    /// Create a new JobStore with a maximum number of jobs to retain
-    pub fn new(max_jobs: usize) -> Self {
-        Self {
-            jobs: VecDeque::with_capacity(max_jobs),
-            max_jobs,
-        }
-    }
-
-    /// Add a new job to the store, removing oldest if at capacity
-    pub fn add_job(&mut self, job: Job) {
-        if self.jobs.len() >= self.max_jobs {
-            self.jobs.pop_front();
-        }
-        self.jobs.push_back(job);
-    }
-
-    /// Update a job's status by ID
-    pub fn update_job<F>(&mut self, id: &str, update_fn: F)
-    where
-        F: FnOnce(&mut Job),
-    {
-        if let Some(job) = self.jobs.iter_mut().find(|j| j.id == id) {
-            update_fn(job);
-        }
-    }
-
-    /// Get a job by ID
-    pub fn get_job(&self, id: &str) -> Option<&Job> {
-        self.jobs.iter().find(|j| j.id == id)
-    }
-
-    /// Get the currently running job (if any)
-    pub fn get_current_job(&self) -> Option<&Job> {
-        self.jobs
-            .iter()
-            .rev()
-            .find(|j| j.status == JobStatus::Running)
-    }
-
-    /// Get count of queued jobs
-    pub fn get_queued_count(&self) -> usize {
-        self.jobs
-            .iter()
-            .filter(|j| j.status == JobStatus::Queued)
-            .count()
-    }
-
-    /// Get the most recent N jobs
-    pub fn get_recent_jobs(&self, limit: usize) -> Vec<&Job> {
-        self.jobs.iter().rev().take(limit).collect()
-    }
-
-    /// Get count of completed jobs (success + failed)
-    pub fn get_completed_count(&self) -> usize {
-        self.jobs
-            .iter()
-            .filter(|j| {
-                j.status == JobStatus::Success || j.status == JobStatus::Failed
-            })
-            .count()
-    }
-
-    /// Get jobs by project name
-    pub fn get_jobs_by_project(&self, project_name: &str) -> Vec<&Job> {
-        self.jobs
-            .iter()
-            .filter(|j| j.project_name == project_name)
-            .collect()
-    }
-
-    /// Get jobs by status
-    pub fn get_jobs_by_status(&self, status: JobStatus) -> Vec<&Job> {
-        self.jobs.iter().filter(|j| j.status == status).collect()
-    }
-
-    /// Get jobs by project and branch
-    pub fn get_jobs_by_branch(&self, project: &str, branch: &str) -> Vec<&Job> {
-        self.jobs
-            .iter()
-            .filter(|j| j.project_name == project && j.branch == branch)
-            .collect()
-    }
-
-    /// Get all failed jobs
-    pub fn get_failed_jobs(&self) -> Vec<&Job> {
-        self.jobs
-            .iter()
-            .filter(|j| j.status == JobStatus::Failed)
-            .collect()
     }
 }

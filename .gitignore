@@ -9,3 +9,6 @@ logs/
 
 # MacOS BS
 *.DS_Store
+
+# Database
+*.db
