@@ -327,15 +327,15 @@ curl http://localhost:8888/api/stream/jobs
 - **Rust** (with Cargo): https://www.rust-lang.org/tools/install
 - **Bun** (for UI): https://bun.sh/
 
-### Quick Build
+### Quick Build (Native/Dev)
 
 ```sh
 git clone https://github.com/kaligraphy247/simple_git_cicd.git
 cd simple_git_cicd
-./build.sh
+./scripts/build_native.sh
 ```
 
-This builds both the UI and the Rust binary with the UI embedded.
+This script installs UI deps via Bun, builds the SPA, and then compiles the Rust binary with the assets embedded. It assumes Rust, Bun, and other native dependencies are available on your host.
 
 ### Manual Build
 
@@ -365,26 +365,29 @@ This builds both the UI and the Rust binary with the UI embedded.
 - `BIND_ADDRESS` - Server address and port (default: `127.0.0.1:8888`)
 - `DATABASE_PATH` - SQLite database path (default: `cicd_data.db`)
 
-### Docker Build
+### Docker Build (Cross-Platform Binary)
 
-For cross-compilation or if you may need an older glibc version:
-
-```bash
-# Build Docker image with build tools
-docker build -t simple-git-cicd-builder .
-
-# Build the binary inside the container
-docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app simple-git-cicd-builder ./build.sh
-```
-
-Or build just the Rust binary (if UI is already built):
+Need a Linux binary with a specific glibc target (e.g., `linux/amd64`) without installing Rust/Bun locally?  
+The Dockerfile now builds both the UI (via Bun) and the Rust binary, then exposes the artifact so it can be copied directly into your current directory.
 
 ```bash
-docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app simple-git-cicd-builder cargo build --release
+# Export the binary for linux/amd64 into the current directory
+docker build \
+  --platform linux/amd64 \
+  --target artifact \
+  --output type=local,dest=. \
+  .
+mv simple_git_cicd simple_git_cicd-linux-amd64
 ```
 
-The resulting binary will be in `./target/release/simple_git_cicd`.
----
+The helper script below automates those steps and names the artifact for you:
+
+```bash
+PLATFORM=linux/amd64 ./scripts/docker_build_binary.sh
+# -> produces ./simple_git_cicd-linux-amd64
+```
+
+Feel free to swap `PLATFORM` (e.g., `linux/arm64`). The Dockerfile no longer hardcodes a platform, so the same file works for every target that Debian supports. The exported file is a ready-to-run binary with the UI already embedded; move it wherever you deploy your runner.
 
 ## Troubleshooting
 
