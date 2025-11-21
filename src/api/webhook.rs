@@ -10,11 +10,11 @@ use chrono::Utc;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
+use crate::SharedState;
 use crate::api::stream::JobEvent;
 use crate::job::{Job, JobStatus};
 use crate::utils::{find_matching_project_owned, run_job_pipeline, verify_github_signature};
 use crate::webhook::WebhookData;
-use crate::SharedState;
 
 /// Handles the GitHub webhook POST request.
 pub async fn handle_webhook(
@@ -210,7 +210,8 @@ pub async fn handle_webhook(
             });
 
             // Run the complete pipeline with hooks
-            match run_job_pipeline(&project, &webhook_data).await {
+            match run_job_pipeline(&project, &webhook_data, &shared_state.job_store, &job_id).await
+            {
                 Ok(output) => {
                     info!("Job {} completed successfully.", job_id);
                     if let Err(e) = shared_state

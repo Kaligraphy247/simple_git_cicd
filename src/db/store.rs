@@ -240,9 +240,9 @@ impl SqlJobStore {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    /// Add a log entry for a job step
-    pub async fn add_log(&self, log: &JobLog) -> Result<(), CicdError> {
-        sqlx::query(
+    /// Add a log entry for a job step, returns the inserted ID
+    pub async fn add_log(&self, log: &JobLog) -> Result<i64, CicdError> {
+        let result = sqlx::query(
             r#"
             INSERT INTO job_logs (
                 job_id, sequence, log_type, command,
@@ -265,6 +265,36 @@ impl SqlJobStore {
         .execute(&self.pool)
         .await
         .map_err(|e| CicdError::DatabaseError(format!("Failed to add job log: {}", e)))?;
+
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Update an existing log entry (for completing a step)
+    pub async fn update_log(
+        &self,
+        id: i64,
+        completed_at: DateTime<Utc>,
+        duration_ms: i64,
+        exit_code: i32,
+        output: &str,
+        status: &str,
+    ) -> Result<(), CicdError> {
+        sqlx::query(
+            r#"
+            UPDATE job_logs
+            SET completed_at = ?, duration_ms = ?, exit_code = ?, output = ?, status = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(completed_at.to_rfc3339())
+        .bind(duration_ms)
+        .bind(exit_code)
+        .bind(output)
+        .bind(status)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| CicdError::DatabaseError(format!("Failed to update job log: {}", e)))?;
 
         Ok(())
     }
