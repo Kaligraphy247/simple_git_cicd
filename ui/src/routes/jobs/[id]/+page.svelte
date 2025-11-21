@@ -35,14 +35,21 @@
 	let lastEvent = $state<any>(null);
 	let liveOutput = $state<string>('');
 	let lastChunk = $state<LogChunkEvent | null>(null);
+	let logsLoading = $state(false);
+	let pendingLogsRequest: Promise<void> | null = null;
+	let lastProcessedChunkTimestamp = $state<string | null>(null);
 
 	const jobId = $derived(page.params.id as string);
 
 	async function loadJob() {
+		const isInitialLoad = loading && !job;
+
 		try {
-			const [jobData, logsData] = await Promise.all([api.getJob(jobId), api.getJobLogs(jobId)]);
+			const jobData = await api.getJob(jobId);
 			job = jobData;
-			logs = logsData.logs;
+
+			await loadJobLogs();
+
 			// Reset live output when job is complete (use stored output)
 			if (jobData.status !== 'running') {
 				liveOutput = '';
@@ -51,8 +58,36 @@
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
-			loading = false;
+			if (isInitialLoad) {
+				loading = false;
+			}
 		}
+	}
+
+	async function loadJobLogs() {
+		if (logsLoading && pendingLogsRequest) {
+			return pendingLogsRequest;
+		}
+
+		logsLoading = true;
+
+		const request = (async () => {
+			try {
+				const logsData = await api.getJobLogs(jobId);
+				logs = logsData.logs;
+			} catch (logErr) {
+				if (job?.status === 'running') {
+					logs = [];
+				}
+				console.warn(`Failed to fetch logs for ${jobId}:`, logErr);
+			} finally {
+				logsLoading = false;
+				pendingLogsRequest = null;
+			}
+		})();
+
+		pendingLogsRequest = request;
+		return request;
 	}
 
 	async function copyToClipboard(text: string) {
@@ -107,10 +142,15 @@
 
 	// React to log chunks for this job
 	$effect(() => {
-		if (lastChunk && lastChunk.job_id === jobId) {
+		if (
+			lastChunk &&
+			lastChunk.job_id === jobId &&
+			lastChunk.timestamp !== lastProcessedChunkTimestamp
+		) {
+			lastProcessedChunkTimestamp = lastChunk.timestamp;
 			liveOutput += lastChunk.chunk;
 			// Also refresh logs to show updated timeline
-			loadJob();
+			loadJobLogs();
 		}
 	});
 
@@ -300,7 +340,7 @@
 									<div class="flex gap-4">
 										<div class="flex flex-col items-center">
 											<div
-												class="flex h-8 w-8 items-center justify-center rounded-full border-2 bg-background"
+												class="flex h-8 w-8 items-center justify-center rounded-full border-2 bg-background p-1.5"
 											>
 												{#if IconComponent}
 													<IconComponent class="h-4 w-4 {getStepIconClass(log.status)}" />
