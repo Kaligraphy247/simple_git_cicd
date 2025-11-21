@@ -17,8 +17,6 @@
 		Settings
 	} from '@lucide/svelte';
 
-	let { children } = $props();
-
 	const navItems = [
 		{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
 		{ href: '/jobs', label: 'Jobs', icon: List },
@@ -26,7 +24,17 @@
 		{ href: '/config', label: 'Config', icon: Settings }
 	];
 
-	let open = $state(false);
+	let { children } = $props();
+	let open: boolean = $state(false);
+	let pathname: string = $derived(page.url.pathname);
+	let titleTag: string = $derived.by(() => {
+		for (const item of navItems) {
+			if (item.href.startsWith(pathname)) {
+				return `${item.label} - Simple Git CI/CD`;
+			}
+		}
+		return 'Simple Git CI/CD';
+	});
 
 	function isActive(href: string, currentPath: string) {
 		if (href === '/') return currentPath === '/';
@@ -34,16 +42,21 @@
 	}
 </script>
 
-<div class="mx-auto min-h-screen max-w-7xl bg-background px-4 font-sans antialiased">
+<svelte:head>
+	<title>{titleTag}</title>
+</svelte:head>
+
+<div class="mx-auto min-h-screen max-w-7xl bg-background font-sans antialiased">
 	<!-- Toaster (Sonner Svelte) -->
 	<Toaster theme={'system'} richColors={true} />
 
 	<header
 		class="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"
 	>
-		<div class="container flex h-14 items-center">
+		<div class="container mx-auto flex h-14 items-center px-4">
 			<!-- Mobile Nav -->
 			{@render MobileNav()}
+			<a href="/" onclick={() => (open = false)} class="font-bold md:hidden"> Simple Git CI/CD </a>
 
 			<!-- Desktop Nav -->
 			{@render DesktopNav()}
@@ -64,13 +77,13 @@
 		</div>
 	</header>
 
-	<main class="container py-6">
+	<main class="container mx-auto px-4 py-6">
 		{@render children()}
 	</main>
 </div>
 
 {#snippet MobileNav()}
-	<div class="mr-2 md:hidden">
+	<div class="mr-0 md:hidden">
 		<Sheet.Root bind:open>
 			<Sheet.Trigger>
 				{#snippet child({ props })}
