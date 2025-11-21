@@ -14,5 +14,5 @@ pub use config::{get_config, reload_config_endpoint};
 pub use jobs::{get_job, get_job_logs, get_jobs};
 pub use projects::get_projects;
 pub use stats::{get_stats, status};
-pub use stream::stream_jobs;
+pub use stream::{stream_jobs, stream_logs, LogChunkEvent};
 pub use webhook::handle_webhook;

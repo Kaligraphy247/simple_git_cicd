@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { api } from '$lib/api/client';
-	import { jobStream } from '$lib/api/sse';
-	import type { Job, JobLog } from '$lib/api/types';
+	import { jobStream, logStream } from '$lib/api/sse';
+	import type { Job, JobLog, LogChunkEvent } from '$lib/api/types';
 	import { toast } from 'svelte-sonner';
 	import { formatDate, formatDuration } from '$lib/utils';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -33,6 +33,8 @@
 	let error = $state<string | null>(null);
 	let autoScroll = $state(true);
 	let lastEvent = $state<any>(null);
+	let liveOutput = $state<string>('');
+	let lastChunk = $state<LogChunkEvent | null>(null);
 
 	const jobId = $derived(page.params.id as string);
 
@@ -41,6 +43,10 @@
 			const [jobData, logsData] = await Promise.all([api.getJob(jobId), api.getJobLogs(jobId)]);
 			job = jobData;
 			logs = logsData.logs;
+			// Reset live output when job is complete (use stored output)
+			if (jobData.status !== 'running') {
+				liveOutput = '';
+			}
 			error = null;
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -64,8 +70,13 @@
 			lastEvent = event;
 		});
 
+		const unsubscribeChunk = logStream.lastChunk.subscribe((chunk) => {
+			lastChunk = chunk;
+		});
+
 		return () => {
 			unsubscribeEvent();
+			unsubscribeChunk();
 		};
 	});
 
@@ -73,6 +84,7 @@
 	$effect(() => {
 		loadJob();
 		jobStream.connect();
+		logStream.connect();
 
 		// Refresh every 2 seconds if job is running
 		const refreshInterval = window.setInterval(() => {
@@ -93,6 +105,15 @@
 		}
 	});
 
+	// React to log chunks for this job
+	$effect(() => {
+		if (lastChunk && lastChunk.job_id === jobId) {
+			liveOutput += lastChunk.chunk;
+			// Also refresh logs to show updated timeline
+			loadJob();
+		}
+	});
+
 	let duration = $derived(
 		job?.completed_at && job?.started_at
 			? new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()
@@ -100,6 +121,9 @@
 	);
 
 	let isRunning = $derived(job?.status === 'running');
+
+	// Show live output while running, stored output when complete
+	let displayOutput = $derived(isRunning && liveOutput ? liveOutput : job?.output || '');
 
 	function getStepIcon(status: string) {
 		switch (status.toLowerCase()) {
@@ -352,8 +376,8 @@
 					<Card.Content class="flex-1 overflow-hidden">
 						<ScrollArea class="h-full w-full rounded border">
 							<div class="bg-slate-950 p-4 font-mono text-sm text-slate-50">
-								{#if job.output}
-									<pre class="wrap-break-words whitespace-pre-wrap">{job.output}</pre>
+								{#if displayOutput}
+									<pre class="wrap-break-words whitespace-pre-wrap">{displayOutput}</pre>
 								{:else}
 									<p class="text-slate-400">No output available</p>
 								{/if}

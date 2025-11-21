@@ -82,3 +82,10 @@ export interface JobEvent {
 	branch: string;
 	timestamp: string;
 }
+
+export interface LogChunkEvent {
+	job_id: string;
+	step_type: string;
+	chunk: string;
+	timestamp: string;
+}

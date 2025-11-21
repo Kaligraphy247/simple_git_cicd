@@ -210,7 +210,7 @@ pub async fn handle_webhook(
             });
 
             // Run the complete pipeline with hooks
-            match run_job_pipeline(&project, &webhook_data, &shared_state.job_store, &job_id).await
+            match run_job_pipeline(&project, &webhook_data, &shared_state.job_store, &job_id, shared_state.log_chunks.clone()).await
             {
                 Ok(output) => {
                     info!("Job {} completed successfully.", job_id);

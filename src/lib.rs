@@ -6,7 +6,7 @@ pub mod ui;
 pub mod utils;
 pub mod webhook;
 
-use api::stream::JobEvent;
+use api::stream::{JobEvent, LogChunkEvent};
 use chrono::{DateTime, Utc};
 use db::SqlJobStore;
 use serde::Deserialize;
@@ -79,6 +79,7 @@ pub struct AppState {
     pub start_time: Instant,
     pub started_at: DateTime<Utc>,
     pub job_events: broadcast::Sender<JobEvent>,
+    pub log_chunks: broadcast::Sender<LogChunkEvent>,
 }
 
 pub type SharedState = Arc<AppState>;

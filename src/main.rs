@@ -11,6 +11,7 @@ use simple_git_cicd::api::{
     reload_config_endpoint,
     status,
     stream_jobs,
+    stream_logs,
 };
 use simple_git_cicd::db::{SqlJobStore, init_db};
 use simple_git_cicd::error::CicdError;
@@ -71,6 +72,7 @@ async fn main() {
     let start_time = Instant::now();
     let started_at = Utc::now();
     let (job_events, _) = broadcast::channel(100);
+    let (log_chunks, _) = broadcast::channel(1000); // Higher capacity for streaming logs
 
     let state = Arc::new(AppState {
         job_execution_lock: Mutex::new(()),
@@ -80,6 +82,7 @@ async fn main() {
         start_time,
         started_at,
         job_events,
+        log_chunks,
     });
 
     let app = Router::new()
@@ -94,8 +97,9 @@ async fn main() {
         .route("/api/projects", routing::get(get_projects))
         .route("/api/stats", routing::get(get_stats))
         .route("/api/config/current", routing::get(get_config))
-        // SSE stream
+        // SSE streams
         .route("/api/stream/jobs", routing::get(stream_jobs))
+        .route("/api/stream/logs", routing::get(stream_logs))
         .with_state(state)
         // UI fallback - serves embedded static files
         .fallback(serve_ui);
