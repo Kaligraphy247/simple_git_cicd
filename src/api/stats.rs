@@ -67,24 +67,30 @@ pub async fn get_stats(AxumState(state): AxumState<SharedState>) -> Json<StatsRe
         .map(|j| j.len() as i64)
         .unwrap_or(0);
 
-    let success = state
+    // Get success jobs and filter out dry runs for accurate stats
+    let success_jobs = state
         .job_store
-        .get_jobs_by_status(JobStatus::Success, 1000)
+        .get_jobs_by_status(JobStatus::Success, 10000)
         .await
-        .map(|j| j.len() as i64)
-        .unwrap_or(0);
+        .unwrap_or_default();
+    let success = success_jobs.len() as i64;
+    let success_non_dry_run = success_jobs.iter().filter(|j| !j.dry_run).count() as i64;
 
-    let failed = state
+    // Get failed jobs and filter out dry runs
+    let failed_jobs = state
         .job_store
-        .get_jobs_by_status(JobStatus::Failed, 1000)
+        .get_jobs_by_status(JobStatus::Failed, 10000)
         .await
-        .map(|j| j.len() as i64)
-        .unwrap_or(0);
+        .unwrap_or_default();
+    let failed = failed_jobs.len() as i64;
+    let failed_non_dry_run = failed_jobs.iter().filter(|j| !j.dry_run).count() as i64;
 
     let total = queued + running + success + failed;
-    let completed = success + failed;
-    let success_rate = if completed > 0 {
-        (success as f64 / completed as f64) * 100.0
+
+    // Calculate success rate excluding dry runs
+    let completed_non_dry_run = success_non_dry_run + failed_non_dry_run;
+    let success_rate = if completed_non_dry_run > 0 {
+        (success_non_dry_run as f64 / completed_non_dry_run as f64) * 100.0
     } else {
         0.0
     };

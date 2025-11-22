@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::SharedState;
 use crate::api::stream::JobEvent;
+use crate::db::store::JobLog;
 use crate::job::{Job, JobStatus};
 use crate::utils::{find_matching_project_owned, run_job_pipeline, verify_github_signature};
 use crate::webhook::WebhookData;
@@ -23,6 +24,10 @@ pub async fn handle_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> StatusCode {
+    // Check for dry run mode
+    let dry_run = params.get("dry_run").map(|v| v == "true").unwrap_or(false)
+        || headers.get("X-Dry-Run").is_some();
+
     if cfg!(debug_assertions) && params.contains_key("dev") {
         debug!("Debug mode");
         debug!("Query Params: {:?}", params);
@@ -135,13 +140,23 @@ pub async fn handle_webhook(
             .map(String::from);
 
         // Create a new job with webhook data
-        let job = Job::from_webhook(
-            repo_name.to_string(),
-            branch_name.to_string(),
-            commit_sha.clone(),
-            commit_message.clone(),
-            commit_author_name.clone(),
-        );
+        let job = if dry_run {
+            Job::from_webhook_dry_run(
+                repo_name.to_string(),
+                branch_name.to_string(),
+                commit_sha.clone(),
+                commit_message.clone(),
+                commit_author_name.clone(),
+            )
+        } else {
+            Job::from_webhook(
+                repo_name.to_string(),
+                branch_name.to_string(),
+                commit_sha.clone(),
+                commit_message.clone(),
+                commit_author_name.clone(),
+            )
+        };
         let job_id = job.id.clone();
 
         // Add job to store
@@ -150,10 +165,17 @@ pub async fn handle_webhook(
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
 
-        info!(
-            "Created job {} for project '{}' branch '{}'",
-            job_id, repo_name, branch_name
-        );
+        if dry_run {
+            info!(
+                "[DRY_RUN] Created job {} for project '{}' branch '{}'",
+                job_id, repo_name, branch_name
+            );
+        } else {
+            info!(
+                "Created job {} for project '{}' branch '{}'",
+                job_id, repo_name, branch_name
+            );
+        }
 
         // Broadcast job created event
         let _ = state.job_events.send(JobEvent {
@@ -205,6 +227,173 @@ pub async fn handle_webhook(
                 .await
             {
                 error!("Failed to update job status to running: {}", e);
+                return;
+            }
+
+            // Handle dry run - skip actual execution
+            if dry_run {
+                info!(
+                    "[DRY_RUN] Job {} - Would execute pipeline for project '{}' branch '{}'",
+                    job_id, webhook_data.project_name, webhook_data.branch
+                );
+
+                let main_script = project.get_run_script_for_branch(&webhook_data.branch);
+                let now = Utc::now();
+
+                // Create simulated log entries for what would run
+                let mut sequence = 0;
+
+                // Git fetch
+                let git_fetch_log = JobLog {
+                    id: None,
+                    job_id: job_id.clone(),
+                    sequence,
+                    log_type: "git_fetch".to_string(),
+                    command: Some("git fetch origin".to_string()),
+                    started_at: now,
+                    completed_at: Some(now),
+                    duration_ms: Some(0),
+                    exit_code: Some(0),
+                    output: Some("[DRY_RUN] Skipped".to_string()),
+                    status: "skipped".to_string(),
+                };
+                let _ = shared_state.job_store.add_log(&git_fetch_log).await;
+                sequence += 1;
+
+                // Git reset
+                let git_reset_log = JobLog {
+                    id: None,
+                    job_id: job_id.clone(),
+                    sequence,
+                    log_type: "git_reset".to_string(),
+                    command: Some(format!("git reset --hard origin/{}", webhook_data.branch)),
+                    started_at: now,
+                    completed_at: Some(now),
+                    duration_ms: Some(0),
+                    exit_code: Some(0),
+                    output: Some("[DRY_RUN] Skipped".to_string()),
+                    status: "skipped".to_string(),
+                };
+                let _ = shared_state.job_store.add_log(&git_reset_log).await;
+                sequence += 1;
+
+                // Pre-script (if configured)
+                if let Some(pre_script) = &project.pre_script {
+                    let pre_log = JobLog {
+                        id: None,
+                        job_id: job_id.clone(),
+                        sequence,
+                        log_type: "pre_script".to_string(),
+                        command: Some(pre_script.clone()),
+                        started_at: now,
+                        completed_at: Some(now),
+                        duration_ms: Some(0),
+                        exit_code: Some(0),
+                        output: Some("[DRY_RUN] Skipped".to_string()),
+                        status: "skipped".to_string(),
+                    };
+                    let _ = shared_state.job_store.add_log(&pre_log).await;
+                    sequence += 1;
+                }
+
+                // Main script
+                let main_log = JobLog {
+                    id: None,
+                    job_id: job_id.clone(),
+                    sequence,
+                    log_type: "main_script".to_string(),
+                    command: Some(main_script.to_string()),
+                    started_at: now,
+                    completed_at: Some(now),
+                    duration_ms: Some(0),
+                    exit_code: Some(0),
+                    output: Some("[DRY_RUN] Skipped".to_string()),
+                    status: "skipped".to_string(),
+                };
+                let _ = shared_state.job_store.add_log(&main_log).await;
+                sequence += 1;
+
+                // Post-success script (if configured)
+                if let Some(post_success) = &project.post_success_script {
+                    let post_log = JobLog {
+                        id: None,
+                        job_id: job_id.clone(),
+                        sequence,
+                        log_type: "post_success_script".to_string(),
+                        command: Some(post_success.clone()),
+                        started_at: now,
+                        completed_at: Some(now),
+                        duration_ms: Some(0),
+                        exit_code: Some(0),
+                        output: Some("[DRY_RUN] Skipped".to_string()),
+                        status: "skipped".to_string(),
+                    };
+                    let _ = shared_state.job_store.add_log(&post_log).await;
+                    sequence += 1;
+                }
+
+                // Post-always script (if configured)
+                if let Some(post_always) = &project.post_always_script {
+                    let post_log = JobLog {
+                        id: None,
+                        job_id: job_id.clone(),
+                        sequence,
+                        log_type: "post_always_script".to_string(),
+                        command: Some(post_always.clone()),
+                        started_at: now,
+                        completed_at: Some(now),
+                        duration_ms: Some(0),
+                        exit_code: Some(0),
+                        output: Some("[DRY_RUN] Skipped".to_string()),
+                        status: "skipped".to_string(),
+                    };
+                    let _ = shared_state.job_store.add_log(&post_log).await;
+                    let _ = sequence; // silence unused warning
+                }
+
+                let dry_run_output = format!(
+                    "[DRY_RUN] Pipeline simulation for project '{}' branch '{}'\n\
+                     \n\
+                     Webhook data:\n\
+                     - Commit SHA: {}\n\
+                     - Commit message: {}\n\
+                     - Author: {}\n\
+                     \n\
+                     No actual commands were executed. See Timeline for details.",
+                    webhook_data.project_name,
+                    webhook_data.branch,
+                    webhook_data.commit_sha.as_deref().unwrap_or("(none)"),
+                    webhook_data.commit_message.as_deref().unwrap_or("(none)"),
+                    webhook_data.commit_author_name.as_deref().unwrap_or("(none)"),
+                );
+
+                // Broadcast running event
+                let _ = shared_state.job_events.send(JobEvent {
+                    event_type: "running".to_string(),
+                    job_id: job_id.clone(),
+                    project_name: webhook_data.project_name.clone(),
+                    branch: webhook_data.branch.clone(),
+                    timestamp: Utc::now().to_rfc3339(),
+                });
+
+                // Mark as success with dry run output
+                if let Err(e) = shared_state
+                    .job_store
+                    .complete_job(&job_id, JobStatus::Success, Some(dry_run_output), None, Utc::now())
+                    .await
+                {
+                    error!("[DRY_RUN] Failed to mark job as success: {}", e);
+                }
+
+                info!("[DRY_RUN] Job {} completed successfully.", job_id);
+                let _ = shared_state.job_events.send(JobEvent {
+                    event_type: "success".to_string(),
+                    job_id: job_id.clone(),
+                    project_name: webhook_data.project_name.clone(),
+                    branch: webhook_data.branch.clone(),
+                    timestamp: Utc::now().to_rfc3339(),
+                });
+
                 return;
             }
 

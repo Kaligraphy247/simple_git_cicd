@@ -41,13 +41,15 @@ pub async fn get_projects(AxumState(state): AxumState<SharedState>) -> Json<serd
 
         let total_jobs = jobs.len() as i64;
 
-        // Calculate success rate from recent jobs
-        let success_count = jobs
+        // Calculate success rate from recent jobs (excluding dry runs)
+        let non_dry_run_jobs: Vec<_> = jobs.iter().filter(|j| !j.dry_run).collect();
+        let success_count = non_dry_run_jobs
             .iter()
             .filter(|j| j.status == JobStatus::Success)
             .count() as f64;
-        let success_rate = if total_jobs > 0 {
-            (success_count / total_jobs as f64) * 100.0
+        let non_dry_run_total = non_dry_run_jobs.len() as f64;
+        let success_rate = if non_dry_run_total > 0.0 {
+            (success_count / non_dry_run_total) * 100.0
         } else {
             0.0
         };

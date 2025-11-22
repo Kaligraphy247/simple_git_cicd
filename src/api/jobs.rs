@@ -21,6 +21,8 @@ pub struct JobsQuery {
     pub branch: Option<String>,
     /// Filter by status (queued, running, success, failed)
     pub status: Option<String>,
+    /// Filter by dry_run (true/false)
+    pub dry_run: Option<bool>,
     /// Number of items per page (default: 50, max: 100)
     pub limit: Option<i64>,
     /// Offset for pagination (default: 0)
@@ -78,6 +80,15 @@ pub async fn get_jobs(
 
     match result {
         Ok(jobs) => {
+            // Filter by dry_run if specified
+            let jobs: Vec<Job> = if let Some(dry_run_filter) = params.dry_run {
+                jobs.into_iter()
+                    .filter(|j| j.dry_run == dry_run_filter)
+                    .collect()
+            } else {
+                jobs
+            };
+
             let total = jobs.len() as i64;
             Json(JobsResponse {
                 jobs,

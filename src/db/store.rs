@@ -86,9 +86,9 @@ impl SqlJobStore {
             INSERT INTO jobs (
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, created_at
+                started_at, created_at, dry_run
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&job.id)
@@ -100,6 +100,7 @@ impl SqlJobStore {
         .bind(&job.commit_author)
         .bind(job.started_at.to_rfc3339())
         .bind(Utc::now().to_rfc3339())
+        .bind(job.dry_run)
         .execute(&self.pool)
         .await
         .map_err(|e| CicdError::DatabaseError(format!("Failed to create job: {}", e)))?;
@@ -181,7 +182,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             WHERE id = ?
             "#,
@@ -201,7 +202,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             ORDER BY created_at DESC
             LIMIT ?
@@ -226,7 +227,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             WHERE project_name = ?
             ORDER BY created_at DESC
@@ -331,7 +332,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             WHERE status = 'running'
             LIMIT 1
@@ -375,7 +376,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             WHERE status = ?
             ORDER BY created_at DESC
@@ -403,7 +404,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             WHERE project_name = ? AND branch = ?
             ORDER BY created_at DESC
@@ -431,7 +432,7 @@ impl SqlJobStore {
             SELECT
                 id, project_name, branch, status,
                 commit_sha, commit_message, commit_author_name,
-                started_at, completed_at, output, output_truncated, error
+                started_at, completed_at, output, output_truncated, error, dry_run
             FROM jobs
             WHERE branch = ?
             ORDER BY created_at DESC
@@ -463,6 +464,7 @@ struct JobRow {
     output: Option<String>,
     output_truncated: Option<bool>,
     error: Option<String>,
+    dry_run: Option<bool>,
 }
 
 impl From<JobRow> for Job {
@@ -499,6 +501,7 @@ impl From<JobRow> for Job {
             output: row.output,
             output_truncated: row.output_truncated.unwrap_or(false),
             error: row.error,
+            dry_run: row.dry_run.unwrap_or(false),
         }
     }
 }

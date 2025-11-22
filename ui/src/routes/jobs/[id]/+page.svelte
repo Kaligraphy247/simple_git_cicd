@@ -24,8 +24,11 @@
 		CircleCheck,
 		X,
 		Terminal,
-		FileText
+		FileText,
+		FlaskConical,
+		SkipForward
 	} from '@lucide/svelte';
+	import { Badge } from '$lib/components/ui/badge';
 
 	let job = $state<Job | null>(null);
 	let logs = $state<JobLog[]>([]);
@@ -174,6 +177,8 @@
 				return X;
 			case 'running':
 				return Spinner;
+			case 'skipped':
+				return SkipForward;
 			default:
 				return Terminal;
 		}
@@ -188,6 +193,8 @@
 				return 'text-red-600';
 			case 'running':
 				return 'text-blue-600 animate-spin';
+			case 'skipped':
+				return 'text-yellow-600';
 			default:
 				return 'text-muted-foreground';
 		}
@@ -232,6 +239,12 @@
 					<div class="space-y-3">
 						<div class="flex items-center gap-3">
 							<StatusBadge status={job.status} class="text-base" />
+							{#if job.dry_run}
+								<Badge variant="outline" class="gap-1">
+									<FlaskConical class="h-3.5 w-3.5" />
+									DRY RUN
+								</Badge>
+							{/if}
 							{#if isRunning}
 								<span class="text-sm text-muted-foreground">Job in progress...</span>
 							{/if}

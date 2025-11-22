@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { formatRelativeTime } from '$lib/utils';
 	import { Card, CardContent } from '$lib/components/ui/card';
-	import { GitCommitHorizontal, Calendar } from '@lucide/svelte';
+	import { Badge } from '$lib/components/ui/badge';
+	import { GitCommitHorizontal, Calendar, FlaskConical } from '@lucide/svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DurationBadge from '$lib/components/DurationBadge.svelte';
 	import type { Job } from '$lib/api/types';
@@ -27,6 +28,12 @@
 						<span class="text-foreground">{job.project_name}</span>
 						<span class="text-muted-foreground">/</span>
 						<span class="text-foreground">{job.branch}</span>
+						{#if job.dry_run}
+							<Badge variant="outline" class="ml-1 gap-1 text-xs">
+								<FlaskConical class="h-3 w-3" />
+								DRY RUN
+							</Badge>
+						{/if}
 					</div>
 
 					<div class="flex items-center gap-3 text-sm text-muted-foreground">

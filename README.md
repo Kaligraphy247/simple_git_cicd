@@ -45,6 +45,7 @@ If you want "git push triggers my custom script" on my cheap/affordable VPS or h
 - **Webhook Security** - HMAC signature validation for GitHub webhooks
 - **Rate Limiting** - Per-project throttling with configurable request counts and time windows
 - **Hot Reload** - Reload configuration without restarting the server
+- **Dry Run Mode** - Test webhooks without executing scripts
 
 ---
 
@@ -245,6 +246,34 @@ The server provides several endpoints for monitoring and management:
 
 This is the endpoint you configure in GitHub webhook settings. The server validates the event, matches the project and branch, and executes the configured script.
 
+#### Dry Run Mode
+
+Test your webhook configuration without actually executing any scripts. The server will:
+- Validate the webhook payload and signature
+- Check rate limits
+- Create a job record in the database
+- Show what scripts *would* run in the Timeline view
+- Skip all actual git operations and script execution
+
+**Usage:**
+
+```bash
+# Using query parameter
+curl -X POST "http://localhost:8888/webhook?dry_run=true" \
+  -H "X-GitHub-Event: push" \
+  -H "Content-Type: application/json" \
+  -d @test-payload.json
+
+# Using header
+curl -X POST http://localhost:8888/webhook \
+  -H "X-Dry-Run: true" \
+  -H "X-GitHub-Event: push" \
+  -H "Content-Type: application/json" \
+  -d @test-payload.json
+```
+
+Dry run jobs are marked with a "DRY RUN" badge in the UI and can be filtered using `?dry_run=true` or `?dry_run=false` on the `/api/jobs` endpoint. Success rate calculations exclude dry run jobs.
+
 ### `GET /api/status` - Server Status
 
 Get server information and recent jobs with optional filtering:
@@ -275,6 +304,8 @@ Get paginated job listing with filters:
 ```bash
 curl "http://localhost:8888/api/jobs?limit=20&offset=0"
 curl "http://localhost:8888/api/jobs?project=myapp&status=success"
+curl "http://localhost:8888/api/jobs?dry_run=false"  # Exclude dry runs
+curl "http://localhost:8888/api/jobs?dry_run=true"   # Only dry runs
 ```
 
 ### `GET /api/jobs/{id}` - Job Details
@@ -371,6 +402,14 @@ This script installs UI deps via Bun, builds the SPA, and then compiles the Rust
 - `CICD_CONFIG` - Path to config file (default: `cicd_config.toml`)
 - `BIND_ADDRESS` - Server address and port (default: `127.0.0.1:8888`)
 - `DATABASE_PATH` - SQLite database path (default: `cicd_data.db`)
+- `RUST_LOG` - Log level filter (default: `simple_git_cicd=info` in release, `simple_git_cicd=debug` in debug builds)
+
+**Logging examples:**
+```bash
+RUST_LOG=debug ./target/release/simple_git_cicd
+RUST_LOG=simple_git_cicd=trace ./target/release/simple_git_cicd
+RUST_LOG=simple_git_cicd=debug,tower_http=debug ./target/release/simple_git_cicd
+```
 
 ### Docker Build (Cross-Platform Binary)
 

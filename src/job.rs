@@ -30,6 +30,7 @@ pub struct Job {
     pub output: Option<String>,
     pub output_truncated: bool,
     pub error: Option<String>,
+    pub dry_run: bool,
 }
 
 impl Job {
@@ -48,6 +49,7 @@ impl Job {
             output: None,
             output_truncated: false,
             error: None,
+            dry_run: false,
         }
     }
 
@@ -72,6 +74,32 @@ impl Job {
             output: None,
             output_truncated: false,
             error: None,
+            dry_run: false,
+        }
+    }
+
+    /// Create a new dry run job from webhook data
+    pub fn from_webhook_dry_run(
+        project_name: String,
+        branch: String,
+        commit_sha: Option<String>,
+        commit_message: Option<String>,
+        commit_author: Option<String>,
+    ) -> Self {
+        Self {
+            id: Uuid::now_v7().to_string(),
+            project_name,
+            branch,
+            commit_sha,
+            commit_message,
+            commit_author,
+            status: JobStatus::Queued,
+            started_at: Utc::now(),
+            completed_at: None,
+            output: None,
+            output_truncated: false,
+            error: None,
+            dry_run: true,
         }
     }
 

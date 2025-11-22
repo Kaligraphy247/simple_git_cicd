@@ -13,6 +13,7 @@ export interface Job {
 	output?: string;
 	output_truncated: boolean;
 	error?: string;
+	dry_run: boolean;
 }
 
 export interface JobLog {
