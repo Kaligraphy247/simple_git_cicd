@@ -14,7 +14,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::{Mutex, broadcast};
-use tracing::{self, info};
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:8888";
 const DEFAULT_CONFIG_PATH: &str = "cicd_config.toml";
@@ -36,7 +37,18 @@ fn load_config(path: &str) -> Result<CICDConfig, CicdError> {
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    tracing_subscriber::fmt::init();
+
+    // Initialize tracing with environment filter
+    // Use RUST_LOG env var to control log levels (e.g., RUST_LOG=debug or RUST_LOG=simple_git_cicd=trace)
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        if cfg!(debug_assertions) {
+            EnvFilter::new("simple_git_cicd=debug,tower_http=debug")
+        } else {
+            EnvFilter::new("simple_git_cicd=info")
+        }
+    });
+
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let bind_address =
         std::env::var("BIND_ADDRESS").unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_string());

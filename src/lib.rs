@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::{Mutex, broadcast};
+use tracing::info;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CICDConfig {
@@ -66,11 +67,24 @@ impl ProjectConfig {
     /// If `branch_scripts` contains the branch, returns that script,
     /// otherwise returns the general `run_script`.
     pub fn get_run_script_for_branch(&self, branch: &str) -> &str {
-        self.branch_scripts
-            .as_ref()
-            .and_then(|scripts| scripts.get(branch))
-            .map(|s| s.as_str())
-            .unwrap_or(&self.run_script)
+        if let Some(scripts) = &self.branch_scripts {
+            if let Some(script) = scripts.get(branch) {
+                info!(
+                    project = %self.name,
+                    branch = %branch,
+                    script = %script,
+                    "Using branch-specific script"
+                );
+                return script;
+            }
+        }
+        info!(
+            project = %self.name,
+            branch = %branch,
+            script = %self.run_script,
+            "Using default script (no branch-specific override found)"
+        );
+        &self.run_script
     }
 
     /// Returns the maximum number of requests allowed for rate limiting.
