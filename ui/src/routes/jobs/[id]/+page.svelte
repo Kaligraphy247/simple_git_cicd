@@ -364,7 +364,7 @@
 											{/if}
 										</div>
 
-										<div class="flex-1 pb-4">
+										<div class="min-w-0 flex-1 pb-4">
 											<div class="flex items-start justify-between">
 												<div>
 													<p class="font-medium">{log.log_type}</p>
@@ -389,7 +389,9 @@
 														View output
 													</summary>
 													<ScrollArea class="mt-2 h-48 rounded border bg-muted/50 p-3">
-														<pre class="text-xs"><code>{log.output}</code></pre>
+														<pre class="wrap-break-words text-xs whitespace-pre-wrap"><code
+																>{log.output}</code
+															></pre>
 													</ScrollArea>
 												</details>
 											{/if}
