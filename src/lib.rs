@@ -2,6 +2,7 @@ pub mod api;
 pub mod db;
 pub mod error;
 pub mod job;
+pub mod rate_limit;
 pub mod ui;
 pub mod utils;
 pub mod webhook;
@@ -9,12 +10,13 @@ pub mod webhook;
 use api::stream::{JobEvent, LogChunkEvent};
 use chrono::{DateTime, Utc};
 use db::SqlJobStore;
+use rate_limit::RateLimiter;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CICDConfig {
@@ -31,13 +33,19 @@ pub struct ProjectConfig {
     pub with_webhook_secret: Option<bool>,
     pub webhook_secret: Option<String>,
 
-    // Coming soon: Advanced features
+    // ?
     pub reset_to_remote: Option<bool>,
+
+    // lifecycle hooks
     pub pre_script: Option<String>,
     pub post_script: Option<String>,
     pub post_success_script: Option<String>,
     pub post_failure_script: Option<String>,
     pub post_always_script: Option<String>,
+
+    // rate limiting
+    pub rate_limit_requests: Option<usize>,
+    pub rate_limit_window_seconds: Option<u64>,
 }
 
 impl ProjectConfig {
@@ -65,6 +73,18 @@ impl ProjectConfig {
             .unwrap_or(&self.run_script)
     }
 
+    /// Returns the maximum number of requests allowed for rate limiting.
+    /// Defaults to 60 if `rate_limit_requests` is not set.
+    pub fn get_rate_limit(&self) -> usize {
+        self.rate_limit_requests.unwrap_or(60)
+    }
+
+    /// Returns the time window in seconds for rate limiting.
+    /// Defaults to 60 seconds if `rate_limit_window_seconds` is not set.
+    pub fn get_rate_limit_window(&self) -> u64 {
+        self.rate_limit_window_seconds.unwrap_or(60)
+    }
+
     /// Returns true if git should reset to remote (default: true for CI/CD)
     pub fn should_reset_to_remote(&self) -> bool {
         self.reset_to_remote.unwrap_or(true)
@@ -78,11 +98,10 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub start_time: Instant,
     pub started_at: DateTime<Utc>,
+    pub rate_limiter: Arc<tokio::sync::Mutex<RateLimiter>>,
     pub job_events: broadcast::Sender<JobEvent>,
     pub log_chunks: broadcast::Sender<LogChunkEvent>,
 }
-
-pub type SharedState = Arc<AppState>;
 
 /// Reload configuration from disk
 pub async fn reload_config(config_path: &PathBuf) -> Result<CICDConfig, error::CicdError> {
@@ -97,3 +116,6 @@ pub async fn reload_config(config_path: &PathBuf) -> Result<CICDConfig, error::C
 
     Ok(new_config)
 }
+
+// Shared application state wrapped in an Arc for thread-safe shared ownership
+pub type SharedState = Arc<AppState>;

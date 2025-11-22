@@ -1,20 +1,12 @@
 use axum::{Router, routing};
 use chrono::Utc;
 use simple_git_cicd::api::{
-    get_config,
-    get_job,
-    get_job_logs,
-    get_jobs,
-    get_projects,
-    get_stats,
-    handle_webhook,
-    reload_config_endpoint,
-    status,
-    stream_jobs,
-    stream_logs,
+    get_config, get_job, get_job_logs, get_jobs, get_projects, get_stats, handle_webhook,
+    reload_config_endpoint, status, stream_jobs, stream_logs,
 };
 use simple_git_cicd::db::{SqlJobStore, init_db};
 use simple_git_cicd::error::CicdError;
+use simple_git_cicd::rate_limit::RateLimiter;
 use simple_git_cicd::ui::serve_ui;
 use simple_git_cicd::{AppState, CICDConfig};
 use std::fs;
@@ -73,6 +65,7 @@ async fn main() {
     let started_at = Utc::now();
     let (job_events, _) = broadcast::channel(100);
     let (log_chunks, _) = broadcast::channel(1000); // Higher capacity for streaming logs
+    let rate_limiter = Arc::new(tokio::sync::Mutex::new(RateLimiter::new()));
 
     let state = Arc::new(AppState {
         job_execution_lock: Mutex::new(()),
@@ -81,6 +74,7 @@ async fn main() {
         config_path: PathBuf::from(config_path.clone()),
         start_time,
         started_at,
+        rate_limiter,
         job_events,
         log_chunks,
     });
