@@ -56,10 +56,7 @@ pub async fn get_jobs(
         }
     } else if let Some(branch) = &params.branch {
         // Branch only filter (across all projects)
-        state
-            .job_store
-            .get_jobs_by_branch_only(branch, limit)
-            .await
+        state.job_store.get_jobs_by_branch_only(branch, limit).await
     } else if let Some(status_str) = &params.status {
         let status = match status_str.to_lowercase().as_str() {
             "queued" => JobStatus::Queued,

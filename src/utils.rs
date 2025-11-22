@@ -92,7 +92,11 @@ pub struct PipelineLogger {
 }
 
 impl PipelineLogger {
-    pub fn new(job_store: SqlJobStore, job_id: String, log_sender: broadcast::Sender<LogChunkEvent>) -> Self {
+    pub fn new(
+        job_store: SqlJobStore,
+        job_id: String,
+        log_sender: broadcast::Sender<LogChunkEvent>,
+    ) -> Self {
         Self {
             job_store,
             job_id,
@@ -112,7 +116,11 @@ impl PipelineLogger {
     }
 
     /// Log a step that's about to start, returns the step handle for completion
-    pub async fn start_step(&mut self, log_type: &str, command: Option<&str>) -> Option<RunningStep> {
+    pub async fn start_step(
+        &mut self,
+        log_type: &str,
+        command: Option<&str>,
+    ) -> Option<RunningStep> {
         self.sequence += 1;
         let started_at = Utc::now();
         let log = JobLog {
@@ -140,7 +148,13 @@ impl PipelineLogger {
     }
 
     /// Complete a step with success
-    pub async fn complete_step(&self, step: RunningStep, log_type: &str, output: String, exit_code: i32) {
+    pub async fn complete_step(
+        &self,
+        step: RunningStep,
+        log_type: &str,
+        output: String,
+        exit_code: i32,
+    ) {
         let completed_at = Utc::now();
         let duration_ms = (completed_at - step.started_at).num_milliseconds();
 
@@ -151,7 +165,14 @@ impl PipelineLogger {
 
         if let Err(e) = self
             .job_store
-            .update_log(step.id, completed_at, duration_ms, exit_code, &output, "success")
+            .update_log(
+                step.id,
+                completed_at,
+                duration_ms,
+                exit_code,
+                &output,
+                "success",
+            )
             .await
         {
             error!("Failed to update log entry: {}", e);
@@ -159,7 +180,13 @@ impl PipelineLogger {
     }
 
     /// Complete a step with failure
-    pub async fn fail_step(&self, step: RunningStep, log_type: &str, output: String, exit_code: i32) {
+    pub async fn fail_step(
+        &self,
+        step: RunningStep,
+        log_type: &str,
+        output: String,
+        exit_code: i32,
+    ) {
         let completed_at = Utc::now();
         let duration_ms = (completed_at - step.started_at).num_milliseconds();
 
@@ -170,7 +197,14 @@ impl PipelineLogger {
 
         if let Err(e) = self
             .job_store
-            .update_log(step.id, completed_at, duration_ms, exit_code, &output, "failed")
+            .update_log(
+                step.id,
+                completed_at,
+                duration_ms,
+                exit_code,
+                &output,
+                "failed",
+            )
             .await
         {
             error!("Failed to update log entry: {}", e);
@@ -319,7 +353,14 @@ pub async fn run_job_pipeline(
     if !fetch.status.success() {
         error!("git fetch failed: {}", fetch_output);
         if let Some(s) = step {
-            logger.fail_step(s, "git_fetch", fetch_output.clone(), fetch.status.code().unwrap_or(-1)).await;
+            logger
+                .fail_step(
+                    s,
+                    "git_fetch",
+                    fetch_output.clone(),
+                    fetch.status.code().unwrap_or(-1),
+                )
+                .await;
         }
         return Err(CicdError::GitOperationFailed {
             operation: "git fetch".to_string(),
@@ -330,7 +371,9 @@ pub async fn run_job_pipeline(
         });
     }
     if let Some(s) = step {
-        logger.complete_step(s, "git_fetch", fetch_output.clone(), 0).await;
+        logger
+            .complete_step(s, "git_fetch", fetch_output.clone(), 0)
+            .await;
     }
     all_output.push_str(&fetch_output);
     info!("git fetch output:\n{}", fetch_output);
@@ -365,16 +408,29 @@ pub async fn run_job_pipeline(
         if !output.status.success() {
             error!("git reset --hard failed: {}", reset_output);
             if let Some(s) = step {
-                logger.fail_step(s, "git_reset", reset_output.clone(), output.status.code().unwrap_or(-1)).await;
+                logger
+                    .fail_step(
+                        s,
+                        "git_reset",
+                        reset_output.clone(),
+                        output.status.code().unwrap_or(-1),
+                    )
+                    .await;
             }
             return Err(CicdError::GitOperationFailed {
                 operation: format!("git reset --hard origin/{}", branch),
-                message: format!("{}. Ensure the target 'origin/{}' exists.", reset_output.trim(), branch),
+                message: format!(
+                    "{}. Ensure the target 'origin/{}' exists.",
+                    reset_output.trim(),
+                    branch
+                ),
             });
         }
 
         if let Some(s) = step {
-            logger.complete_step(s, "git_reset", reset_output.clone(), 0).await;
+            logger
+                .complete_step(s, "git_reset", reset_output.clone(), 0)
+                .await;
         }
         all_output.push_str(&reset_output);
         info!("git reset --hard output:\n{}", reset_output);
@@ -407,7 +463,14 @@ pub async fn run_job_pipeline(
         if !checkout.status.success() {
             error!("git switch failed: {}", switch_output);
             if let Some(s) = step {
-                logger.fail_step(s, "git_switch", switch_output.clone(), checkout.status.code().unwrap_or(-1)).await;
+                logger
+                    .fail_step(
+                        s,
+                        "git_switch",
+                        switch_output.clone(),
+                        checkout.status.code().unwrap_or(-1),
+                    )
+                    .await;
             }
             return Err(CicdError::GitOperationFailed {
                 operation: format!("git switch {}", branch),
@@ -419,7 +482,9 @@ pub async fn run_job_pipeline(
             });
         }
         if let Some(s) = step {
-            logger.complete_step(s, "git_switch", switch_output.clone(), 0).await;
+            logger
+                .complete_step(s, "git_switch", switch_output.clone(), 0)
+                .await;
         }
         all_output.push_str(&switch_output);
         info!("git switch output:\n{}", switch_output);
@@ -447,7 +512,14 @@ pub async fn run_job_pipeline(
         if !pull.status.success() {
             error!("git pull failed: {}", pull_output);
             if let Some(s) = step {
-                logger.fail_step(s, "git_pull", pull_output.clone(), pull.status.code().unwrap_or(-1)).await;
+                logger
+                    .fail_step(
+                        s,
+                        "git_pull",
+                        pull_output.clone(),
+                        pull.status.code().unwrap_or(-1),
+                    )
+                    .await;
             }
             return Err(CicdError::GitOperationFailed {
                 operation: "git pull".to_string(),
@@ -458,7 +530,9 @@ pub async fn run_job_pipeline(
             });
         }
         if let Some(s) = step {
-            logger.complete_step(s, "git_pull", pull_output.clone(), 0).await;
+            logger
+                .complete_step(s, "git_pull", pull_output.clone(), 0)
+                .await;
         }
         all_output.push_str(&pull_output);
         info!("git pull output:\n{}", pull_output);
@@ -471,7 +545,9 @@ pub async fn run_job_pipeline(
         match run_script_with_env(pre_script, repo_path, webhook_data, None).await {
             Ok(result) => {
                 if let Some(s) = step {
-                    logger.complete_step(s, "pre_script", result.output.clone(), result.exit_code).await;
+                    logger
+                        .complete_step(s, "pre_script", result.output.clone(), result.exit_code)
+                        .await;
                 }
                 all_output.push_str(&result.output);
             }
@@ -494,13 +570,17 @@ pub async fn run_job_pipeline(
     match &main_result {
         Ok(result) => {
             if let Some(s) = step {
-                logger.complete_step(s, "main_script", result.output.clone(), result.exit_code).await;
+                logger
+                    .complete_step(s, "main_script", result.output.clone(), result.exit_code)
+                    .await;
             }
             all_output.push_str(&result.output);
         }
         Err(e) => {
             if let Some(s) = step {
-                logger.fail_step(s, "main_script", e.to_string(), main_exit_code).await;
+                logger
+                    .fail_step(s, "main_script", e.to_string(), main_exit_code)
+                    .await;
             }
         }
     }
@@ -517,7 +597,14 @@ pub async fn run_job_pipeline(
                 match run_script_with_env(script, repo_path, webhook_data, post_env.clone()).await {
                     Ok(result) => {
                         if let Some(s) = step {
-                            logger.complete_step(s, "post_success", result.output.clone(), result.exit_code).await;
+                            logger
+                                .complete_step(
+                                    s,
+                                    "post_success",
+                                    result.output.clone(),
+                                    result.exit_code,
+                                )
+                                .await;
                         }
                         all_output.push_str(&result.output);
                     }
@@ -533,7 +620,14 @@ pub async fn run_job_pipeline(
                 match run_script_with_env(script, repo_path, webhook_data, post_env.clone()).await {
                     Ok(result) => {
                         if let Some(s) = step {
-                            logger.complete_step(s, "post_script", result.output.clone(), result.exit_code).await;
+                            logger
+                                .complete_step(
+                                    s,
+                                    "post_script",
+                                    result.output.clone(),
+                                    result.exit_code,
+                                )
+                                .await;
                         }
                         all_output.push_str(&result.output);
                     }
@@ -553,7 +647,14 @@ pub async fn run_job_pipeline(
                 match run_script_with_env(script, repo_path, webhook_data, post_env.clone()).await {
                     Ok(result) => {
                         if let Some(s) = step {
-                            logger.complete_step(s, "post_failure", result.output.clone(), result.exit_code).await;
+                            logger
+                                .complete_step(
+                                    s,
+                                    "post_failure",
+                                    result.output.clone(),
+                                    result.exit_code,
+                                )
+                                .await;
                         }
                         all_output.push_str(&result.output);
                     }
@@ -569,7 +670,14 @@ pub async fn run_job_pipeline(
                 match run_script_with_env(script, repo_path, webhook_data, post_env.clone()).await {
                     Ok(result) => {
                         if let Some(s) = step {
-                            logger.complete_step(s, "post_script", result.output.clone(), result.exit_code).await;
+                            logger
+                                .complete_step(
+                                    s,
+                                    "post_script",
+                                    result.output.clone(),
+                                    result.exit_code,
+                                )
+                                .await;
                         }
                         all_output.push_str(&result.output);
                     }
@@ -590,7 +698,9 @@ pub async fn run_job_pipeline(
         match run_script_with_env(script, repo_path, webhook_data, post_env).await {
             Ok(result) => {
                 if let Some(s) = step {
-                    logger.complete_step(s, "post_always", result.output.clone(), result.exit_code).await;
+                    logger
+                        .complete_step(s, "post_always", result.output.clone(), result.exit_code)
+                        .await;
                 }
                 all_output.push_str(&result.output);
             }

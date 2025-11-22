@@ -9,8 +9,8 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 
-use crate::job::{Job, JobStatus};
 use crate::SharedState;
+use crate::job::{Job, JobStatus};
 
 /// Server statistics
 #[derive(Debug, Serialize)]
@@ -41,9 +41,7 @@ pub struct StatsResponse {
 }
 
 /// GET /api/stats - Get server and job statistics
-pub async fn get_stats(
-    AxumState(state): AxumState<SharedState>,
-) -> Json<StatsResponse> {
+pub async fn get_stats(AxumState(state): AxumState<SharedState>) -> Json<StatsResponse> {
     // Get project count without holding lock across await
     let total_projects = {
         let config = state.config.read().unwrap();
@@ -62,19 +60,22 @@ pub async fn get_stats(
     // Job stats - get counts for each status
     let queued = state.job_store.get_queued_count().await.unwrap_or(0);
 
-    let running = state.job_store
+    let running = state
+        .job_store
         .get_jobs_by_status(JobStatus::Running, 1000)
         .await
         .map(|j| j.len() as i64)
         .unwrap_or(0);
 
-    let success = state.job_store
+    let success = state
+        .job_store
         .get_jobs_by_status(JobStatus::Success, 1000)
         .await
         .map(|j| j.len() as i64)
         .unwrap_or(0);
 
-    let failed = state.job_store
+    let failed = state
+        .job_store
         .get_jobs_by_status(JobStatus::Failed, 1000)
         .await
         .map(|j| j.len() as i64)

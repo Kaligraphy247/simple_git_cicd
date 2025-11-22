@@ -1,13 +1,10 @@
 //! Projects API endpoints
 
-use axum::{
-    Json,
-    extract::State as AxumState,
-};
+use axum::{Json, extract::State as AxumState};
 use serde::Serialize;
 
-use crate::job::JobStatus;
 use crate::SharedState;
+use crate::job::JobStatus;
 
 /// Summary of a project with recent job stats
 #[derive(Debug, Serialize)]
@@ -21,20 +18,23 @@ pub struct ProjectSummary {
 }
 
 /// GET /api/projects - Get all projects with summaries
-pub async fn get_projects(
-    AxumState(state): AxumState<SharedState>,
-) -> Json<serde_json::Value> {
+pub async fn get_projects(AxumState(state): AxumState<SharedState>) -> Json<serde_json::Value> {
     // Clone project configs to avoid holding lock across await
     let projects: Vec<_> = {
         let config = state.config.read().unwrap();
-        config.project.iter().map(|p| (p.name.clone(), p.branches.clone())).collect()
+        config
+            .project
+            .iter()
+            .map(|p| (p.name.clone(), p.branches.clone()))
+            .collect()
     };
 
     let mut summaries = Vec::new();
 
     for (name, branches) in projects {
         // Get recent jobs for this project
-        let jobs = state.job_store
+        let jobs = state
+            .job_store
             .get_jobs_by_project(&name, 10)
             .await
             .unwrap_or_default();
@@ -42,7 +42,8 @@ pub async fn get_projects(
         let total_jobs = jobs.len() as i64;
 
         // Calculate success rate from recent jobs
-        let success_count = jobs.iter()
+        let success_count = jobs
+            .iter()
             .filter(|j| j.status == JobStatus::Success)
             .count() as f64;
         let success_rate = if total_jobs > 0 {
@@ -52,7 +53,8 @@ pub async fn get_projects(
         };
 
         // Get last job info
-        let (last_job_status, last_job_at) = jobs.first()
+        let (last_job_status, last_job_at) = jobs
+            .first()
             .map(|j| {
                 let status = match j.status {
                     JobStatus::Queued => "queued",

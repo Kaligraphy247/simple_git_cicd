@@ -141,7 +141,9 @@ impl SqlJobStore {
             .bind(id)
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| CicdError::DatabaseError(format!("Failed to fetch job started_at: {}", e)))?;
+            .map_err(|e| {
+                CicdError::DatabaseError(format!("Failed to fetch job started_at: {}", e))
+            })?;
 
         // Parse started_at and calculate duration
         let duration_ms = DateTime::parse_from_rfc3339(&started_at.0)
@@ -344,12 +346,13 @@ impl SqlJobStore {
 
     /// Count completed jobs (success + failed)
     pub async fn get_completed_count(&self) -> Result<i64, CicdError> {
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM jobs WHERE status IN ('success', 'failed')"
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| CicdError::DatabaseError(format!("Failed to count completed jobs: {}", e)))?;
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM jobs WHERE status IN ('success', 'failed')")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| {
+                    CicdError::DatabaseError(format!("Failed to count completed jobs: {}", e))
+                })?;
 
         Ok(count.0)
     }

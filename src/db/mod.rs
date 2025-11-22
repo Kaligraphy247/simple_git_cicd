@@ -20,8 +20,9 @@ pub async fn init_db(db_path: impl AsRef<Path>) -> Result<SqlitePool, CicdError>
                 CicdError::DatabaseError(format!("Failed to create database directory: {}", e))
             })?;
         }
-        std::fs::File::create(db_path)
-            .map_err(|e| CicdError::DatabaseError(format!("Failed to create database file: {}", e)))?;
+        std::fs::File::create(db_path).map_err(|e| {
+            CicdError::DatabaseError(format!("Failed to create database file: {}", e))
+        })?;
     }
 
     let db_url = format!("sqlite:{}", db_path_str);
