@@ -1,18 +1,31 @@
 <script lang="ts">
+	import { dummyConfig } from './dummy';
 	import { api } from '$lib/api/client';
 	import type { ConfigResponse } from '$lib/api/types';
 	import * as Card from '$lib/components/ui/card';
+	import * as Alert from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import * as Alert from '$lib/components/ui/alert';
-	import { RefreshCw, FileText, RotateCcw, CheckCircle2, AlertCircle } from '@lucide/svelte';
+	import {
+		RefreshCw,
+		FileText,
+		RotateCcw,
+		CircleCheck,
+		CircleAlert,
+		Eye,
+		EyeOff
+	} from '@lucide/svelte';
 
 	let config = $state<ConfigResponse | null>(null);
-	let loading = $state(true);
+	let loading = $state(false);
 	let reloading = $state(false);
 	let error = $state<string | null>(null);
 	let reloadStatus = $state<{ type: 'success' | 'error'; message: string } | null>(null);
+	let isVisible = $state(false); // Starts with config hidden
+
+	// Placeholder config
+	const placeholderConfig = dummyConfig;
 
 	async function loadConfig() {
 		loading = true;
@@ -51,9 +64,18 @@
 		}
 	}
 
-	$effect(() => {
-		loadConfig();
-	});
+	async function toggleVisibility() {
+		if (!isVisible) {
+			// Show: load the real config
+			if (!config) {
+				await loadConfig();
+			}
+			isVisible = true;
+		} else {
+			// Hide: just toggle the state
+			isVisible = false;
+		}
+	}
 </script>
 
 <div class="space-y-6">
@@ -63,13 +85,24 @@
 			<p class="text-muted-foreground">Current TOML configuration file</p>
 		</div>
 		<div class="flex gap-2">
-			<Button variant="outline" size="icon" onclick={loadConfig} disabled={loading}>
-				<RefreshCw class={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+			<Button variant="outline" onclick={toggleVisibility} disabled={loading}>
+				{#if isVisible}
+					<EyeOff class="mr-2 h-4 w-4" />
+					Hide Config
+				{:else}
+					<Eye class="mr-2 h-4 w-4" />
+					Show Config
+				{/if}
 			</Button>
-			<Button onclick={handleReload} disabled={reloading}>
-				<RotateCcw class={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
-				Reload Config
-			</Button>
+			{#if isVisible}
+				<Button variant="outline" size="icon" onclick={loadConfig} disabled={loading}>
+					<RefreshCw class={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+				</Button>
+				<Button onclick={handleReload} disabled={reloading}>
+					<RotateCcw class={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+					Reload Config
+				</Button>
+			{/if}
 		</div>
 	</div>
 
@@ -83,13 +116,13 @@
 	{#if reloadStatus}
 		{#if reloadStatus.type === 'success'}
 			<Alert.Root variant="default" class="border-green-600/50 bg-green-50 dark:bg-green-950/20">
-				<CheckCircle2 class="h-4 w-4 text-green-600" />
+				<CircleCheck class="h-4 w-4 text-green-600" />
 				<Alert.Title>Success</Alert.Title>
 				<Alert.Description>{reloadStatus.message}</Alert.Description>
 			</Alert.Root>
 		{:else}
 			<Alert.Root variant="destructive">
-				<AlertCircle class="h-4 w-4" />
+				<CircleAlert class="h-4 w-4" />
 				<Alert.Title>Error</Alert.Title>
 				<Alert.Description>{reloadStatus.message}</Alert.Description>
 			</Alert.Root>
@@ -98,38 +131,65 @@
 
 	{#if loading && !config}
 		<Skeleton class="h-96 w-full" />
-	{:else if config}
+	{:else}
 		<Card.Root>
 			<Card.Header>
 				<div class="flex items-center justify-between">
 					<div>
 						<Card.Title>Configuration File</Card.Title>
-						<Card.Description>Read-only view of {config.path}</Card.Description>
+						<Card.Description>
+							{#if isVisible && config}
+								Read-only view of {config.path}
+							{:else}
+								Click "Show Config" to view configuration
+							{/if}
+						</Card.Description>
 					</div>
-					<div class="flex items-center gap-2 text-sm text-muted-foreground">
-						<FileText class="h-4 w-4" />
-						<span class="font-mono text-xs">{config.config_toml.split('\n').length} lines</span>
-					</div>
+					{#if isVisible && config}
+						<div class="flex items-center gap-2 text-sm text-muted-foreground">
+							<FileText class="h-4 w-4" />
+							<span class="font-mono text-xs">{config.config_toml.split('\n').length} lines</span>
+						</div>
+					{/if}
 				</div>
 			</Card.Header>
 			<Card.Content>
-				<ScrollArea class="h-[600px] w-full rounded border">
-					<div class="bg-slate-950 p-4">
-						<pre
-							class="font-mono text-sm text-slate-50"><code>{config.config_toml}</code></pre>
-					</div>
-				</ScrollArea>
-			</Card.Content>
-			<Card.Footer class="flex-col items-start gap-2">
-				<div class="text-sm text-muted-foreground">
-					<p>
-						To edit the configuration, modify the TOML file directly at <code
-							class="rounded bg-muted px-1 py-0.5">{config.path}</code
-						>.
-					</p>
-					<p class="mt-1">After making changes, click "Reload Config" to apply them.</p>
+				<div class="relative">
+					<ScrollArea class="h-[600px] w-full rounded border">
+						<div class="bg-slate-950 p-4">
+							<pre class="font-mono text-sm text-slate-50"><code
+									>{#if isVisible && config}{config.config_toml}{:else}{placeholderConfig}{/if}</code
+								></pre>
+						</div>
+					</ScrollArea>
+					{#if !isVisible}
+						<!-- Blur overlay -->
+						<div
+							class="absolute inset-0 flex items-center justify-center rounded border backdrop-blur-md"
+						>
+							<div class="text-center">
+								<EyeOff class="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+								<p class="text-lg font-semibold">Configuration Hidden</p>
+								<p class="mt-2 text-sm text-muted-foreground">
+									Click "Show Config" to view the configuration
+								</p>
+							</div>
+						</div>
+					{/if}
 				</div>
-			</Card.Footer>
+			</Card.Content>
+			{#if isVisible && config}
+				<Card.Footer class="flex-col items-start gap-2">
+					<div class="text-sm text-muted-foreground">
+						<p>
+							To edit the configuration, modify the TOML file directly at <code
+								class="rounded bg-muted px-1 py-0.5">{config.path}</code
+							>.
+						</p>
+						<p class="mt-1">After making changes, click "Reload Config" to apply them.</p>
+					</div>
+				</Card.Footer>
+			{/if}
 		</Card.Root>
 
 		<!-- Help Section -->
@@ -148,18 +208,36 @@
 				<div>
 					<h3 class="font-semibold">Required Fields</h3>
 					<ul class="ml-4 list-disc text-muted-foreground">
-						<li><code class="rounded bg-muted px-1 py-0.5">name</code> - Repository name (must match GitHub webhook)</li>
-						<li><code class="rounded bg-muted px-1 py-0.5">repo_path</code> - Absolute path to local repository</li>
-						<li><code class="rounded bg-muted px-1 py-0.5">branches</code> - Array of branches to watch</li>
-						<li><code class="rounded bg-muted px-1 py-0.5">run_script</code> - Script to execute on push</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">name</code> - Repository name (must match GitHub
+							webhook)
+						</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">repo_path</code> - Absolute path to local repository
+						</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">branches</code> - Array of branches to watch
+						</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">run_script</code> - Script to execute on push
+						</li>
 					</ul>
 				</div>
 				<div>
 					<h3 class="font-semibold">Optional Fields</h3>
 					<ul class="ml-4 list-disc text-muted-foreground">
-						<li><code class="rounded bg-muted px-1 py-0.5">with_webhook_secret</code> - Enable HMAC signature validation</li>
-						<li><code class="rounded bg-muted px-1 py-0.5">webhook_secret</code> - Secret for signature validation</li>
-						<li><code class="rounded bg-muted px-1 py-0.5">branch_scripts</code> - Branch-specific script overrides</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">with_webhook_secret</code> - Enable HMAC signature
+							validation
+						</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">webhook_secret</code> - Secret for signature
+							validation
+						</li>
+						<li>
+							<code class="rounded bg-muted px-1 py-0.5">branch_scripts</code> - Branch-specific script
+							overrides
+						</li>
 					</ul>
 				</div>
 			</Card.Content>
