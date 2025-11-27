@@ -142,10 +142,40 @@ pub struct AppState {
     pub log_chunks: broadcast::Sender<LogChunkEvent>,
 }
 
+/// Helper function to expand path with ~ and resolve relative paths
+fn expand_path(path: &str) -> PathBuf {
+    use std::env;
+
+    let path = if let Some(stripped) = path.strip_prefix("~/") {
+        if let Some(home) = env::var_os("HOME") {
+            PathBuf::from(home).join(stripped)
+        } else {
+            PathBuf::from(path)
+        }
+    } else {
+        PathBuf::from(path)
+    };
+
+    // Convert to absolute path if relative
+    if path.is_relative() {
+        if let Ok(current_dir) = env::current_dir() {
+            current_dir.join(path)
+        } else {
+            path
+        }
+    } else {
+        path
+    }
+}
+
+/// Helper function to check if a string looks like a path
+/// Paths typically contain '/' or '\' or start with './' or '../' or '~/'
+fn looks_like_path(s: &str) -> bool {
+    s.contains('/') || s.contains('\\') || s.starts_with("~/")
+}
+
 /// Validate configuration
 pub fn validate_config(config: &CICDConfig) -> Result<(), error::CicdError> {
-    use std::path::Path;
-
     if config.project.is_empty() {
         return Err(error::CicdError::ConfigError(
             "Configuration must contain at least one project".to_string(),
@@ -171,18 +201,22 @@ pub fn validate_config(config: &CICDConfig) -> Result<(), error::CicdError> {
             )));
         }
 
-        // Validate default repo_path exists
-        let repo_path = Path::new(&project.repo_path);
+        // Validate default repo_path exists (always validate as path, expand ~)
+        let repo_path = expand_path(&project.repo_path);
         if !repo_path.exists() {
             return Err(error::CicdError::ConfigError(format!(
-                "{}: Default repo_path '{}' does not exist",
-                project_prefix, project.repo_path
+                "{}: Default repo_path '{}' (resolved to '{}') does not exist",
+                project_prefix,
+                project.repo_path,
+                repo_path.display()
             )));
         }
         if !repo_path.is_dir() {
             return Err(error::CicdError::ConfigError(format!(
-                "{}: Default repo_path '{}' is not a directory",
-                project_prefix, project.repo_path
+                "{}: Default repo_path '{}' (resolved to '{}') is not a directory",
+                project_prefix,
+                project.repo_path,
+                repo_path.display()
             )));
         }
 
@@ -197,30 +231,47 @@ pub fn validate_config(config: &CICDConfig) -> Result<(), error::CicdError> {
                     )));
                 }
 
-                // Check path exists
-                let branch_path = Path::new(path);
+                // Check path exists (expand ~ and relative paths)
+                let branch_path = expand_path(path);
                 if !branch_path.exists() {
                     return Err(error::CicdError::ConfigError(format!(
-                        "{}: Branch-specific repo_path '{}' for branch '{}' does not exist",
-                        project_prefix, path, branch
+                        "{}: Branch-specific repo_path '{}' (resolved to '{}') for branch '{}' does not exist",
+                        project_prefix,
+                        path,
+                        branch_path.display(),
+                        branch
                     )));
                 }
                 if !branch_path.is_dir() {
                     return Err(error::CicdError::ConfigError(format!(
-                        "{}: Branch-specific repo_path '{}' for branch '{}' is not a directory",
-                        project_prefix, path, branch
+                        "{}: Branch-specific repo_path '{}' (resolved to '{}') for branch '{}' is not a directory",
+                        project_prefix,
+                        path,
+                        branch_path.display(),
+                        branch
                     )));
                 }
             }
         }
 
-        // Validate default run_script exists
-        let script_path = Path::new(&project.run_script);
-        if !script_path.exists() {
+        // Validate default run_script (if it looks like a path, check it exists; otherwise allow inline commands)
+        if project.run_script.trim().is_empty() {
             return Err(error::CicdError::ConfigError(format!(
-                "{}: Default run_script '{}' does not exist",
-                project_prefix, project.run_script
+                "{}: Default run_script cannot be empty",
+                project_prefix
             )));
+        }
+
+        if looks_like_path(&project.run_script) {
+            let script_path = expand_path(&project.run_script);
+            if !script_path.exists() {
+                return Err(error::CicdError::ConfigError(format!(
+                    "{}: Default run_script '{}' (resolved to '{}') does not exist",
+                    project_prefix,
+                    project.run_script,
+                    script_path.display()
+                )));
+            }
         }
 
         // Validate branch-specific scripts
@@ -234,13 +285,25 @@ pub fn validate_config(config: &CICDConfig) -> Result<(), error::CicdError> {
                     )));
                 }
 
-                // Check script exists
-                let script_path = Path::new(script);
-                if !script_path.exists() {
+                // Check script (if path, validate; otherwise allow inline command)
+                if script.trim().is_empty() {
                     return Err(error::CicdError::ConfigError(format!(
-                        "{}: Branch-specific script '{}' for branch '{}' does not exist",
-                        project_prefix, script, branch
+                        "{}: Branch-specific script for branch '{}' cannot be empty",
+                        project_prefix, branch
                     )));
+                }
+
+                if looks_like_path(script) {
+                    let script_path = expand_path(script);
+                    if !script_path.exists() {
+                        return Err(error::CicdError::ConfigError(format!(
+                            "{}: Branch-specific script '{}' (resolved to '{}') for branch '{}' does not exist",
+                            project_prefix,
+                            script,
+                            script_path.display(),
+                            branch
+                        )));
+                    }
                 }
             }
         }
@@ -256,12 +319,25 @@ pub fn validate_config(config: &CICDConfig) -> Result<(), error::CicdError> {
 
         for (hook_name, hook_script) in &hooks {
             if let Some(script) = hook_script {
-                let script_path = Path::new(script);
-                if !script_path.exists() {
+                if script.trim().is_empty() {
                     return Err(error::CicdError::ConfigError(format!(
-                        "{}: {} '{}' does not exist",
-                        project_prefix, hook_name, script
+                        "{}: {} cannot be empty",
+                        project_prefix, hook_name
                     )));
+                }
+
+                // Only validate as path if it looks like a path
+                if looks_like_path(script) {
+                    let script_path = expand_path(script);
+                    if !script_path.exists() {
+                        return Err(error::CicdError::ConfigError(format!(
+                            "{}: {} '{}' (resolved to '{}') does not exist",
+                            project_prefix,
+                            hook_name,
+                            script,
+                            script_path.display()
+                        )));
+                    }
                 }
             }
         }
