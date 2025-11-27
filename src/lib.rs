@@ -31,6 +31,7 @@ pub struct ProjectConfig {
     pub branches: Vec<String>,
     pub run_script: String,
     pub branch_scripts: Option<HashMap<String, String>>,
+    pub branch_repo_paths: Option<HashMap<String, String>>,
     pub with_webhook_secret: Option<bool>,
     pub webhook_secret: Option<String>,
 
@@ -67,16 +68,16 @@ impl ProjectConfig {
     /// If `branch_scripts` contains the branch, returns that script,
     /// otherwise returns the general `run_script`.
     pub fn get_run_script_for_branch(&self, branch: &str) -> &str {
-        if let Some(scripts) = &self.branch_scripts {
-            if let Some(script) = scripts.get(branch) {
-                info!(
-                    project = %self.name,
-                    branch = %branch,
-                    script = %script,
-                    "Using branch-specific script"
-                );
-                return script;
-            }
+        if let Some(scripts) = &self.branch_scripts
+            && let Some(script) = scripts.get(branch)
+        {
+            info!(
+                project = %self.name,
+                branch = %branch,
+                script = %script,
+                "Using branch-specific script"
+            );
+            return script;
         }
         info!(
             project = %self.name,
@@ -85,6 +86,30 @@ impl ProjectConfig {
             "Using default script (no branch-specific override found)"
         );
         &self.run_script
+    }
+
+    /// Returns the repo path to use for a specific branch.
+    /// If `branch_repo_paths` contains the branch, returns that path,
+    /// otherwise returns the general `repo_path`.
+    pub fn get_repo_path_for_branch(&self, branch: &str) -> &str {
+        if let Some(paths) = &self.branch_repo_paths
+            && let Some(path) = paths.get(branch)
+        {
+            info!(
+                project = %self.name,
+                branch = %branch,
+                repo_path = %path,
+                "Using branch-specific repo path"
+            );
+            return path;
+        }
+        info!(
+            project = %self.name,
+            branch = %branch,
+            repo_path = %self.repo_path,
+            "Using default repo path (no branch-specific override found)"
+        );
+        &self.repo_path
     }
 
     /// Returns the maximum number of requests allowed for rate limiting.
@@ -115,6 +140,142 @@ pub struct AppState {
     pub rate_limiter: Arc<tokio::sync::Mutex<RateLimiter>>,
     pub job_events: broadcast::Sender<JobEvent>,
     pub log_chunks: broadcast::Sender<LogChunkEvent>,
+}
+
+/// Validate configuration
+pub fn validate_config(config: &CICDConfig) -> Result<(), error::CicdError> {
+    use std::path::Path;
+
+    if config.project.is_empty() {
+        return Err(error::CicdError::ConfigError(
+            "Configuration must contain at least one project".to_string(),
+        ));
+    }
+
+    for (idx, project) in config.project.iter().enumerate() {
+        let project_prefix = format!("Project '{}' (index {})", project.name, idx);
+
+        // Validate project name is not empty
+        if project.name.is_empty() {
+            return Err(error::CicdError::ConfigError(format!(
+                "{}: Project name cannot be empty",
+                project_prefix
+            )));
+        }
+
+        // Validate branches list is not empty
+        if project.branches.is_empty() {
+            return Err(error::CicdError::ConfigError(format!(
+                "{}: Must specify at least one branch",
+                project_prefix
+            )));
+        }
+
+        // Validate default repo_path exists
+        let repo_path = Path::new(&project.repo_path);
+        if !repo_path.exists() {
+            return Err(error::CicdError::ConfigError(format!(
+                "{}: Default repo_path '{}' does not exist",
+                project_prefix, project.repo_path
+            )));
+        }
+        if !repo_path.is_dir() {
+            return Err(error::CicdError::ConfigError(format!(
+                "{}: Default repo_path '{}' is not a directory",
+                project_prefix, project.repo_path
+            )));
+        }
+
+        // Validate branch-specific repo paths
+        if let Some(branch_paths) = &project.branch_repo_paths {
+            for (branch, path) in branch_paths {
+                // Check branch exists in branches list
+                if !project.branches.contains(branch) {
+                    return Err(error::CicdError::ConfigError(format!(
+                        "{}: Branch '{}' in branch_repo_paths is not in branches list",
+                        project_prefix, branch
+                    )));
+                }
+
+                // Check path exists
+                let branch_path = Path::new(path);
+                if !branch_path.exists() {
+                    return Err(error::CicdError::ConfigError(format!(
+                        "{}: Branch-specific repo_path '{}' for branch '{}' does not exist",
+                        project_prefix, path, branch
+                    )));
+                }
+                if !branch_path.is_dir() {
+                    return Err(error::CicdError::ConfigError(format!(
+                        "{}: Branch-specific repo_path '{}' for branch '{}' is not a directory",
+                        project_prefix, path, branch
+                    )));
+                }
+            }
+        }
+
+        // Validate default run_script exists
+        let script_path = Path::new(&project.run_script);
+        if !script_path.exists() {
+            return Err(error::CicdError::ConfigError(format!(
+                "{}: Default run_script '{}' does not exist",
+                project_prefix, project.run_script
+            )));
+        }
+
+        // Validate branch-specific scripts
+        if let Some(branch_scripts) = &project.branch_scripts {
+            for (branch, script) in branch_scripts {
+                // Check branch exists in branches list
+                if !project.branches.contains(branch) {
+                    return Err(error::CicdError::ConfigError(format!(
+                        "{}: Branch '{}' in branch_scripts is not in branches list",
+                        project_prefix, branch
+                    )));
+                }
+
+                // Check script exists
+                let script_path = Path::new(script);
+                if !script_path.exists() {
+                    return Err(error::CicdError::ConfigError(format!(
+                        "{}: Branch-specific script '{}' for branch '{}' does not exist",
+                        project_prefix, script, branch
+                    )));
+                }
+            }
+        }
+
+        // Validate lifecycle hook scripts if they exist
+        let hooks = [
+            ("pre_script", &project.pre_script),
+            ("post_script", &project.post_script),
+            ("post_success_script", &project.post_success_script),
+            ("post_failure_script", &project.post_failure_script),
+            ("post_always_script", &project.post_always_script),
+        ];
+
+        for (hook_name, hook_script) in &hooks {
+            if let Some(script) = hook_script {
+                let script_path = Path::new(script);
+                if !script_path.exists() {
+                    return Err(error::CicdError::ConfigError(format!(
+                        "{}: {} '{}' does not exist",
+                        project_prefix, hook_name, script
+                    )));
+                }
+            }
+        }
+
+        // Validate webhook secret configuration
+        if project.needs_webhook_secret() && !project.has_valid_secret() {
+            return Err(error::CicdError::ConfigError(format!(
+                "{}: with_webhook_secret is true but webhook_secret is not set or is empty",
+                project_prefix
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 /// Reload configuration from disk

@@ -6,7 +6,7 @@ use serde_json::json;
 use tokio::fs;
 use tracing::{error, info};
 
-use crate::{SharedState, reload_config};
+use crate::{SharedState, reload_config, validate_config};
 
 /// Response for config content
 #[derive(Debug, Serialize)]
@@ -43,15 +43,28 @@ pub async fn reload_config_endpoint(AxumState(state): AxumState<SharedState>) ->
 
     match reload_config(&state.config_path).await {
         Ok(new_config) => {
+            // Validate the new config before applying it
+            if let Err(e) = validate_config(&new_config) {
+                error!("Config validation failed during reload: {}", e);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "status": "error",
+                        "message": format!("Configuration validation failed: {}", e)
+                    })),
+                )
+                    .into_response();
+            }
+
             let mut config = state.config.write().unwrap();
             *config = new_config;
             info!(
-                "Configuration reloaded successfully from {:?}",
+                "Configuration validated successfully from {:?} and reloaded",
                 state.config_path
             );
             Json(json!({
                 "status": "success",
-                "message": "Configuration reloaded successfully"
+                "message": "Configuration validated and reloaded successfully"
             }))
             .into_response()
         }

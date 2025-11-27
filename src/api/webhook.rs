@@ -190,7 +190,7 @@ pub async fn handle_webhook(
         let webhook_data = WebhookData {
             project_name: repo_name.to_string(),
             branch: branch_name.to_string(),
-            repo_path: project.repo_path.clone(),
+            repo_path: project.get_repo_path_for_branch(branch_name).to_string(),
             commit_sha,
             commit_message,
             commit_author_name,
@@ -364,7 +364,10 @@ pub async fn handle_webhook(
                     webhook_data.branch,
                     webhook_data.commit_sha.as_deref().unwrap_or("(none)"),
                     webhook_data.commit_message.as_deref().unwrap_or("(none)"),
-                    webhook_data.commit_author_name.as_deref().unwrap_or("(none)"),
+                    webhook_data
+                        .commit_author_name
+                        .as_deref()
+                        .unwrap_or("(none)"),
                 );
 
                 // Broadcast running event
@@ -379,7 +382,13 @@ pub async fn handle_webhook(
                 // Mark as success with dry run output
                 if let Err(e) = shared_state
                     .job_store
-                    .complete_job(&job_id, JobStatus::Success, Some(dry_run_output), None, Utc::now())
+                    .complete_job(
+                        &job_id,
+                        JobStatus::Success,
+                        Some(dry_run_output),
+                        None,
+                        Utc::now(),
+                    )
                     .await
                 {
                     error!("[DRY_RUN] Failed to mark job as success: {}", e);

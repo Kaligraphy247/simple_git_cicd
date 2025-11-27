@@ -8,7 +8,7 @@ use simple_git_cicd::db::{SqlJobStore, init_db};
 use simple_git_cicd::error::CicdError;
 use simple_git_cicd::rate_limit::RateLimiter;
 use simple_git_cicd::ui::serve_ui;
-use simple_git_cicd::{AppState, CICDConfig};
+use simple_git_cicd::{AppState, CICDConfig, validate_config};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -63,6 +63,15 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // Validate configuration
+    if let Err(e) = validate_config(&config) {
+        eprintln!("Configuration validation failed: {}", e);
+        eprintln!("\nPlease fix the configuration errors and restart the server.");
+        std::process::exit(1);
+    }
+
+    info!("Configuration validated successfully");
 
     let pool = match init_db(&db_path).await {
         Ok(p) => p,

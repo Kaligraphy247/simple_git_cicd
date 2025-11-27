@@ -5,6 +5,12 @@ pub struct RateLimiter {
     requests: HashMap<String, Vec<Instant>>,
 }
 
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RateLimiter {
     pub fn new() -> Self {
         Self {
@@ -18,10 +24,7 @@ impl RateLimiter {
         let now = Instant::now();
         let window_duration = std::time::Duration::from_secs(window_secs);
 
-        let timestamps = self
-            .requests
-            .entry(key.to_string())
-            .or_insert_with(Vec::new);
+        let timestamps = self.requests.entry(key.to_string()).or_default();
 
         // Remove timestamps older than window
         timestamps.retain(|&t| now.duration_since(t) < window_duration);
