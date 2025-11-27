@@ -41,7 +41,8 @@ If you want "git push triggers my custom script" on my cheap/affordable VPS or h
 - **Single Binary** - Everything bundled into one ~6MB executable (API server + Web UI)
 - **Web Dashboard** - Real-time job monitoring with SSE updates
 - **SQLite Storage** - Persistent job history with no external database required
-- **Per-Project Config** - Different scripts per project and branch
+- **Per-Project Config** - Different scripts and repo paths per project and branch
+- **Config Validation** - Automatic validation of paths and scripts on startup and reload
 - **Webhook Security** - HMAC signature validation for GitHub webhooks
 - **Rate Limiting** - Per-project throttling with configurable request counts and time windows
 - **Hot Reload** - Reload configuration without restarting the server
@@ -67,6 +68,7 @@ Each project specifies:
 
 **Optional:**
 - `branch_scripts` - Table mapping branch names to specific scripts
+- `branch_repo_paths` - Table mapping branch names to specific repo paths (useful when different branches are checked out in different directories)
 - `with_webhook_secret` - Enable HMAC signature validation (default: false)
 - `webhook_secret` - Secret for GitHub webhook validation
 - `reset_to_remote` - Hard reset to remote branch before running (default: true)
@@ -102,6 +104,7 @@ post_success_script = "./notify-slack.sh success"
 post_failure_script = "./notify-slack.sh failure"
 post_always_script = "./cleanup.sh"
 
+# Branch-specific scripts
 [project.branch_scripts]
 main = "./deploy-prod.sh"
 staging = "./deploy-staging.sh"
@@ -113,6 +116,40 @@ repo_path = "/srv/www/static-site"
 branches = ["main"]
 run_script = "python3 build.py"
 with_webhook_secret = false
+
+# Example: Multiple branches in separate directories
+[[project]]
+name = "multi-branch-app"
+repo_path = "/home/user/app-main"       # Default path for most branches
+branches = ["main", "staging", "feature-x"]
+run_script = "./deploy.sh"
+
+[project.branch_scripts]
+feature-x = "./deploy-feature.sh"       # Different script for feature-x
+
+[project.branch_repo_paths]
+feature-x = "/home/user/app-feature-x"  # Different repo path for feature-x
+# main and staging use the default repo_path
+```
+
+#### Configuration Validation
+
+The server automatically validates your configuration on startup and when reloading. This ensures:
+
+- All `repo_path` directories exist and are accessible
+- All `branch_repo_paths` directories exist and reference branches in the `branches` list
+- All scripts (`run_script`, `branch_scripts`, and lifecycle hooks) exist and are accessible
+- Branch names in `branch_scripts` and `branch_repo_paths` are defined in the `branches` list
+- Webhook secrets are configured when `with_webhook_secret = true`
+- At least one project is defined
+
+**If validation fails, the server will exit immediately with a detailed error message showing exactly what needs to be fixed.**
+
+Example validation error:
+```
+Configuration validation failed: Project 'my-app' (index 0): Branch-specific repo_path '/home/user/nonexistent' for branch 'feature-x' does not exist
+
+Please fix the configuration errors and restart the server.
 ```
 
 ---
