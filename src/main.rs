@@ -1,4 +1,4 @@
-use axum::{Router, routing};
+use axum::{Router, extract::DefaultBodyLimit, routing};
 use chrono::Utc;
 use simple_git_cicd::api::{
     get_config, get_job, get_job_logs, get_jobs, get_projects, get_stats, handle_webhook,
@@ -20,6 +20,10 @@ use tracing_subscriber::EnvFilter;
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:8888";
 const DEFAULT_CONFIG_PATH: &str = "cicd_config.toml";
 const DEFAULT_DB_PATH: &str = "cicd_data.db";
+
+/// Maximum accepted webhook request body (512 KiB). Real GitHub push payloads
+/// are a few KB; this leaves wide headroom while capping the worst case.
+const WEBHOOK_BODY_LIMIT: usize = 512 * 1024;
 
 /// Load and parse the configuration file
 fn load_config(path: &str) -> Result<CICDConfig, CicdError> {
@@ -101,8 +105,13 @@ async fn main() {
     });
 
     let app = Router::new()
-        // Webhook endpoint (kept at root for GitHub compatibility)
-        .route("/webhook", routing::post(handle_webhook))
+        // Webhook endpoint (kept at root for GitHub compatibility).
+        // Cap the body well below axum's 2 MB default so junk requests are
+        // rejected by the framework before the handler allocates for them.
+        .route(
+            "/webhook",
+            routing::post(handle_webhook).layer(DefaultBodyLimit::max(WEBHOOK_BODY_LIMIT)),
+        )
         // API endpoints
         .route("/api/status", routing::get(status))
         .route("/api/reload", routing::post(reload_config_endpoint))
