@@ -173,18 +173,12 @@ CICD_CONFIG=/path/to/your_config.toml ./target/release/simple_git_cicd
 
 You can also control the bind address and port of the server (where it listens for webhooks) using the `BIND_ADDRESS` environment variable. By default, it listens on `127.0.0.1:8888`.
 
+The `/api/*` endpoints (including `POST /api/reload`) have no authentication, so keep the server bound to localhost (`127.0.0.1`) and put it behind a reverse proxy (e.g. nginx, Caddy) if it needs to be reachable from outside the machine.
+
 **Examples:**
-- Listen on all interfaces, port 8888 (default):
-  ```
-  BIND_ADDRESS=0.0.0.0:8888
-  ```
 - Listen only on localhost, port 9001:
   ```
   BIND_ADDRESS=127.0.0.1:9001
-  ```
-- Listen on all interfaces, port 80:
-  ```
-  BIND_ADDRESS=0.0.0.0:80
   ```
 
 **Running with a custom bind address:**
@@ -193,7 +187,7 @@ BIND_ADDRESS=127.0.0.1:9001 ./target/release/simple_git_cicd
 ```
 
 You can set up your GitHub webhook to POST to the matching address, for example: `http://your-server:8888/webhook` or your chosen port.
-If you running on port 80/443, then it would be `http(s)://your-server.com/webhook`.
+If you're running behind a reverse proxy on port 80/443, that would be `http(s)://your-server.com/webhook`.
 
 ---
 
