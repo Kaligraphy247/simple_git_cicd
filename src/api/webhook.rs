@@ -71,19 +71,6 @@ pub async fn handle_webhook(
     };
 
     if let Some(project) = maybe_project {
-        // check rate limits first
-        let rate_limit_sec = project.get_rate_limit();
-        let rate_limit_window = project.get_rate_limit_window();
-        let mut rate_limiter = state.rate_limiter.lock().await;
-
-        if rate_limiter.check_rate_limit(&project.name, rate_limit_sec, rate_limit_window) {
-            warn!(
-                "Too many requests for project {:?} - {:?} requests per {:?} seconds",
-                &project.name, rate_limit_sec, rate_limit_window
-            );
-            return StatusCode::TOO_MANY_REQUESTS;
-        }
-
         // Per-project webhook signature validation if required
         if project.needs_webhook_secret() {
             let signature_opt = headers
@@ -113,6 +100,21 @@ pub async fn handle_webhook(
                 );
                 return StatusCode::UNAUTHORIZED;
             }
+        }
+
+        // Rate limit only requests that passed signature validation, so
+        // unauthenticated traffic cannot exhaust a project's budget and
+        // lock out legitimate pushes.
+        let rate_limit_sec = project.get_rate_limit();
+        let rate_limit_window = project.get_rate_limit_window();
+        let mut rate_limiter = state.rate_limiter.lock().await;
+
+        if rate_limiter.check_rate_limit(&project.name, rate_limit_sec, rate_limit_window) {
+            warn!(
+                "Too many requests for project {:?} - {:?} requests per {:?} seconds",
+                &project.name, rate_limit_sec, rate_limit_window
+            );
+            return StatusCode::TOO_MANY_REQUESTS;
         }
 
         // Extract webhook data from payload

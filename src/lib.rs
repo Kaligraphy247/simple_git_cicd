@@ -113,9 +113,9 @@ impl ProjectConfig {
     }
 
     /// Returns the maximum number of requests allowed for rate limiting.
-    /// Defaults to 60 if `rate_limit_requests` is not set.
+    /// Defaults to 10 if `rate_limit_requests` is not set.
     pub fn get_rate_limit(&self) -> usize {
-        self.rate_limit_requests.unwrap_or(60)
+        self.rate_limit_requests.unwrap_or(10)
     }
 
     /// Returns the time window in seconds for rate limiting.

@@ -72,7 +72,7 @@ Each project specifies:
 - `with_webhook_secret` - Enable HMAC signature validation (default: false)
 - `webhook_secret` - Secret for GitHub webhook validation
 - `reset_to_remote` - Hard reset to remote branch before running (default: true)
-- `rate_limit_requests` - Maximum number of webhook requests allowed per project within the window (default: 60)
+- `rate_limit_requests` - Maximum number of *verified* webhook requests allowed per project within the window (default: 10)
 - `rate_limit_window_seconds` - Sliding window duration for rate limiting in seconds (default: 60)
 
 If you omit both rate limit fields, each project automatically allows up to 60 webhook requests per 60-second window.
@@ -95,7 +95,7 @@ branches = ["main", "staging", "dev"]
 run_script = "./deploy.sh"
 with_webhook_secret = true
 webhook_secret = "your-github-webhook-secret"
-rate_limit_requests = 30                # Allow 30 webhook hits (defaults to 60 if omitted)
+rate_limit_requests = 30                # Allow 30 webhook hits (defaults to 10 if omitted)
 rate_limit_window_seconds = 60          # ...per 60-second window (defaults to 60 seconds if omitted)
 
 # Lifecycle hooks
