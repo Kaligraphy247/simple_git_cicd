@@ -30,13 +30,13 @@ pub fn verify_github_signature(secret: &str, payload: &[u8], signature_header: &
         Err(_) => return false,
     };
     mac.update(payload);
-    let computed_signature = mac.finalize().into_bytes();
 
     // GitHub provides the signature as hex
     match hex_decode(provided_signature) {
         Ok(provided_signature_bytes) => {
-            // Constant-time comparison
-            computed_signature.as_slice() == provided_signature_bytes.as_slice()
+            // `verify_slice` compares in constant time, so a failed verification
+            // leaks no information about how many leading bytes were correct.
+            mac.verify_slice(&provided_signature_bytes).is_ok()
         }
         Err(_) => {
             error!("Signature verification failed");
@@ -714,4 +714,41 @@ pub async fn run_job_pipeline(
 
     // 7. Return main script result (or all output on success)
     main_result.map(|_| all_output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verify_github_signature;
+
+    const SECRET: &str = "It's a Secret to Everybody";
+    const PAYLOAD: &[u8] = b"Hello, World!";
+    // Signature from GitHub's own webhook documentation example.
+    const VALID: &str = "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17";
+
+    #[test]
+    fn accepts_valid_signature() {
+        assert!(verify_github_signature(SECRET, PAYLOAD, VALID));
+    }
+
+    #[test]
+    fn rejects_tampered_signature() {
+        let mut tampered = VALID.to_string();
+        tampered.pop();
+        tampered.push('0');
+        assert!(!verify_github_signature(SECRET, PAYLOAD, &tampered));
+    }
+
+    #[test]
+    fn rejects_wrong_secret_and_payload() {
+        assert!(!verify_github_signature("wrong secret", PAYLOAD, VALID));
+        assert!(!verify_github_signature(SECRET, b"tampered payload", VALID));
+    }
+
+    #[test]
+    fn rejects_malformed_headers() {
+        // Missing prefix, non-hex body, and a correct-prefix-but-truncated digest.
+        assert!(!verify_github_signature(SECRET, PAYLOAD, &VALID["sha256=".len()..]));
+        assert!(!verify_github_signature(SECRET, PAYLOAD, "sha256=zzzz"));
+        assert!(!verify_github_signature(SECRET, PAYLOAD, &VALID[..20]));
+    }
 }
